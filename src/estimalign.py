@@ -4,17 +4,20 @@ alignment parameters from labeled pairs of sequences.
 """
 from Bio.Align import PairwiseAligner, substitution_matrices
 import numpy as np
+from numpy import random as rd
 from scipy.optimize import minimize
+from copy import deepcopy
 from .optimization import get_initial_estimate
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 def estimalign(seqlistA, seqlistB,
                labels,
+               baseline_aligner=None,
                aligner_mode = 'local',
                gap_mode = 'affine',
                substitution_mode = 'symmetric',
                alphabet = None,
-               baseline_params = None,
+               stochastic_factor=None,
                stepfunction = None,
                max_iter=1000, tol=1e-3,
                num_threads = 1,
@@ -41,58 +44,60 @@ def estimalign(seqlistA, seqlistB,
         print('Alphabet:')
         print(alphabet)
 
-    # Initial alignments
-    if baseline_params is None:
-        if gap_mode == 'affine':
-            baseline_params = {'match_score': 5,
-                               'mismatch_score': -4,
-                               'open_gap_score': -8,
-                               'extend_gap_score': -0.5}
-        elif gap_mode == 'linear':
-            baseline_params = {'match_score': 5,
-                               'mismatch_score': -4,
-                               'gap_score': -6}
-            
-    aligner = PairwiseAligner()
-    aligner.mode = aligner_mode
-    
-    if gap_mode == 'affine':
-        aligner.open_gap_score = baseline_params['open_gap_score']
-        aligner.extend_gap_score = baseline_params['extend_gap_score']
-    elif gap_mode == 'linear':
-        aligner.gap_score = baseline_params['gap_score']
-
-    if substitution_mode == 'simple':
-        aligner.match_score = baseline_params['match_score']
-        aligner.mismatch_score = baseline_params['mismatch_score']
+    # Stochastic trick function
+    if stochastic_factor is None:
+        def add_noise(shape, niter):
+            return np.zeros(shape)
     else:
-        # Create a substitution matrix with match values on the diagonal,
-        # mismatch values elsewhere
-        multiplier = (baseline_params['match_score'] - baseline_params['mismatch_score'])
-        subsM = multiplier*np.eye(len(alphabet)) + baseline_params['mismatch_score']
-        subsM = substitution_matrices.Array(alphabet = alphabet,
-                                            data = subsM)
-        aligner.substitution_matrix = subsM
+        def add_noise(shape, niter):
+            return rd.normal(size=shape, scale=stochastic_factor/(niter+1))
+
+    # Initial alignments
+    if baseline_aligner is not None:
+        aligner = deepcopy(baseline_aligner)
+    else:
+        aligner = PairwiseAligner()
+        aligner.mode = aligner_mode
+        if gap_mode == 'affine':
+            aligner.open_gap_score = -8
+            aligner.extend_gap_score = -0.5
+        elif gap_mode == 'linear':
+            aligner.gap_score = -6
+        if substitution_mode == 'simple':
+            aligner.match_score = 5
+            aligner.mismatch_score = -4
+        else:
+            aligner.substitution_matrix = substitution_matrices.Array(data=9*np.eye(len(alphabet))-4,
+                                                                      alphabet=alphabet)
 
     if num_threads == 1:
-        alnlist = [next(aligner.align(seqA, seqB)) for seqA, seqB in zip(seqlistA, seqlistB)]
+        alnlist = [aligner.align(seqA, seqB) for seqA, seqB in zip(seqlistA, seqlistB)]
+        alnlist = [next(aln) for aln in alnlist]
     else:
         workers = create_alignment_workers(seqlistA, seqlistB, aligner)
         alnlist = parallel(workers)
     alignment_scores = [aln.score for aln in alnlist]
     
     # Initial logistic estimation
-    updated_parameters = get_initial_estimate(alnlist, labels, gap_mode)
-    if substitution_mode != 'simple':
-        multiplier = (updated_parameters['match_score'] - updated_parameters['mismatch_score'])
-        subsM = multiplier*np.eye(len(alphabet)) + updated_parameters['mismatch_score']
-        subsM = substitution_matrices.Array(alphabet = alphabet,
-                                            data = subsM)
-        updated_parameters['substitution_matrix'] =  subsM
+    updated_parameters = get_initial_estimate(alnlist, labels,
+                                              substitution_mode = substitution_mode,
+                                              gap_mode =gap_mode,
+                                              alphabet=alphabet)
     if verbose:
         print('Initial parameters:')
         print(updated_parameters)
-            
+    if gap_mode == 'affine':
+        aligner.open_gap_score = updated_parameters['open_gap_score']
+        aligner.extend_gap_score = updated_parameters['extend_gap_score']
+    else:
+        aligner.gap_score = updated_parameters['gap_score']
+
+    if substitution_mode == 'simple':
+        aligner.match_score = updated_parameters['match_score']
+        aligner.mismatch_score = updated_parameters['mismatch_score']
+    else:
+        aligner.substitution_matrix = updated_parameters['substitution_matrix']
+    
     # Subgradient refinement
     loglik_trajectory = []
     subgradient_l2_trajectory = []
@@ -116,7 +121,8 @@ def estimalign(seqlistA, seqlistB,
 
         # Realign with the new parameters
         if num_threads == 1:
-            alnlist = [next(aligner.align(seqA, seqB)) for seqA, seqB in zip(seqlistA, seqlistB)]
+            alnlist = [aligner.align(seqA, seqB) for seqA, seqB in zip(seqlistA, seqlistB)]
+            alnlist = [next(aln) for aln in alnlist]
         else:
             workers = create_alignment_workers(seqlistA, seqlistB, aligner)
             alnlist = parallel(workers)
@@ -128,15 +134,15 @@ def estimalign(seqlistA, seqlistB,
         if verbose:
             print("Current alpha:", updated_parameters['alpha'])
             print('Current logL:', new_logL)
-        EL = 0
-        VL = 0
-        for ls in logit_scores:
-            if 1e-30 < ls < 1-1e-30:
-                EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
-                VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
-        SDL = np.sqrt(VL)
-        loglik_expectation.append(EL)
-        loglik_sd.append(SDL)
+##        EL = 0
+##        VL = 0
+##        for ls in logit_scores:
+##            if 1e-30 < ls < 1-1e-30:
+##                EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
+##                VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
+##        SDL = np.sqrt(VL)
+##        loglik_expectation.append(EL)
+##        loglik_sd.append(SDL)
         
         # Optimize the logistic intercept (alpha)
         def alpha_target(alpha):
@@ -179,8 +185,8 @@ def estimalign(seqlistA, seqlistB,
 
         subgradient_square_norm = 0
         if gap_mode == 'affine':
-            updated_parameters['open_gap_score'] += stepsize*subgradient['Gap opens']
-            updated_parameters['extend_gap_score'] += stepsize*subgradient['Gap extends']
+            updated_parameters['open_gap_score'] += stepsize*subgradient['Gap opens'] + add_noise(1, iternb)
+            updated_parameters['extend_gap_score'] += stepsize*subgradient['Gap extends'] + add_noise(1, iternb)
             subgradient_square_norm += subgradient['Gap opens']**2
             subgradient_square_norm += subgradient['Gap extends']**2
             if verbose:
@@ -188,7 +194,7 @@ def estimalign(seqlistA, seqlistB,
                 print('Gap extend step:', stepsize*subgradient['Gap extends'])
         elif gap_mode == 'linear':
             gapnb = subgradient['Gap opens'] + subgradient['Gap extends'] 
-            updated_parameters['gap_score'] += stepsize*gapnb
+            updated_parameters['gap_score'] += stepsize*gapnb + add_noise(1, iternb)
             subgradient_square_norm += gapnb**2
             if verbose:
                 print('Linear gap step:', stepsize*gapnb)
@@ -196,19 +202,23 @@ def estimalign(seqlistA, seqlistB,
         if substitution_mode == 'simple':
             match_subgradient = np.sum(np.diag(subgradient['Substitutions']))
             mismatch_subgradient = np.sum(subgradient['Substitutions']) - match_subgradient
-            updated_parameters['match_score'] += stepsize*match_subgradient
-            updated_parameters['mismatch_score'] += stepsize*mismatch_subgradient
+            updated_parameters['match_score'] += stepsize*match_subgradient + add_noise(1, iternb)
+            updated_parameters['mismatch_score'] += stepsize*mismatch_subgradient + add_noise(1, iternb)
             subgradient_square_norm += match_subgradient**2
             subgradient_square_norm += mismatch_subgradient**2
             if verbose:
                 print('Match step:', stepsize*match_subgradient)
                 print('Mismatch step:', stepsize*mismatch_subgradient)
         elif substitution_mode == 'symmetric':
-            subsM = (subgradient['Substitutions'].T + subgradient['Substitutions']) # divide by 2?
-            updated_parameters['substitution_matrix'] += stepsize*subsM
+            subsM = subgradient['Substitutions']
+            subsM = subsM + add_noise(subsM.shape, iternb)
+            subsM = (subsM + subsM.T) # divide by 2?
+            updated_parameters['substitution_matrix'] += stepsize*subsM 
             subgradient_square_norm += np.sum(subsM**2)
         else:
-            updated_parameters['substitution_matrix'] += stepsize*subgradient['Substitutions']
+            subsM = subgradient['Substitutions']
+            subsM = subsM + add_noise(subsM.shape, iternb)
+            updated_parameters['substitution_matrix'] += stepsize*subsM
             subgradient_square_norm += np.sum(subsM**2)
         subgradient_l2_trajectory.append(np.sqrt(subgradient_square_norm))
         if verbose:
@@ -245,15 +255,15 @@ def estimalign(seqlistA, seqlistB,
     logit_scores = logit_partial_scores(alignment_scores,
                                             updated_parameters['alpha'])
     new_logL = logit_logL(logit_scores, labels)
-    EL = 0
-    VL = 0
-    for ls in logit_scores:
-        if 1e-30 < ls < 1-1e-30:
-            EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
-            VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
-    SDL = np.sqrt(VL)
-    loglik_expectation.append(EL)
-    loglik_sd.append(SDL)
+##    EL = 0
+##    VL = 0
+##    for ls in logit_scores:
+##        if 1e-30 < ls < 1-1e-30:
+##            EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
+##            VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
+##    SDL = np.sqrt(VL)
+##    loglik_expectation.append(EL)
+##    loglik_sd.append(SDL)
     loglik_trajectory.append(new_logL)
     results['loglik_trajectory'] = loglik_trajectory
     results['subgradient_l2_trajectory'] = subgradient_l2_trajectory
@@ -262,7 +272,6 @@ def estimalign(seqlistA, seqlistB,
     results['alignments'] = alnlist
     results['alignment_logit_scores'] = logit_scores
     results['alpha'] = updated_parameters['alpha']
-    results['loglik_expectation_trajectory'] = loglik_expectation
-    results['loglik_sd_trajectory'] = loglik_sd
-
+    # results['loglik_expectation_trajectory'] = loglik_expectation
+    # results['loglik_sd_trajectory'] = loglik_sd
     return results
