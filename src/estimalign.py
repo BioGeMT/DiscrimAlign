@@ -47,10 +47,13 @@ def estimalign(seqlistA, seqlistB,
     # Stochastic trick function
     if stochastic_factor is None:
         def add_noise(shape, niter):
-            if shape == 1:
-                return 0
+            if shape == 1: 
+                return 0.
             else:
                 return np.zeros(shape)
+            # Note: For consistency with numpy, returning a number should
+            # happen when shape == None, shape 1 should return an array.
+            # This would require modifying the code elsewhere
     else:
         def add_noise(shape, niter):
             if shape == 1:
