@@ -47,10 +47,16 @@ def estimalign(seqlistA, seqlistB,
     # Stochastic trick function
     if stochastic_factor is None:
         def add_noise(shape, niter):
-            return np.zeros(shape)
+            if shape == 1:
+                return 0
+            else:
+                return np.zeros(shape)
     else:
         def add_noise(shape, niter):
-            return rd.normal(size=shape, scale=stochastic_factor/(niter+1))
+            if shape == 1:
+                return rd.normal(scale=stochastic_factor/(niter+1))
+            else:
+                return rd.normal(size=shape, scale=stochastic_factor/(niter+1))
 
     # Initial alignments
     if baseline_aligner is not None:
