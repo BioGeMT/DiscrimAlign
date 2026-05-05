@@ -102,6 +102,16 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
     )
 
+    replicate_result = run_replicate_experiment(
+        mirna_sequences,
+        gene_sequences,
+        logit_scores=simple_result["logit_scores"],
+        replicate_count=config.replicate_count,
+        max_iter=config.replicate_max_iter,
+        stochastic_factor=config.stochastic_factor,
+        num_threads=config.num_threads,
+    )
+
     summary = {
         "config": {
             **asdict(config),
@@ -112,18 +122,9 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
             "dataset_index": config.dataset_index,
             "split": config.split,
         },
-        "simple_model": {
-            "true_loglik": simple_result["true_loglik"],
-            "final_loglik": as_float(simple_result["params"].get("final_loglik")),
-            "alpha": as_float(simple_result["params"].get("alpha")),
-            "match_score": as_float(simple_result["params"].get("match_score")),
-            "mismatch_score": as_float(simple_result["params"].get("mismatch_score")),
-            "open_gap_score": as_float(simple_result["params"].get("open_gap_score")),
-            "extend_gap_score": as_float(
-                simple_result["params"].get("extend_gap_score")
-            ),
-        },        
+        "simple_model": summarize_simple_model(simple_result),
         "step_length_experiment": step_result,
+        "replicate_experiment": replicate_result,
     }
 
     write_json(config.output_dir / "simulation_summary.json", summary)
@@ -151,54 +152,6 @@ def load_mirbench_sequences(
     return mirna_sequences, gene_sequences
 
 
-def run_step_length_experiment(
-    mirna_sequences: list[Seq],
-    gene_sequences: list[Seq],
-    *,
-    logit_scores: np.ndarray,
-    true_loglik: float,
-    max_iter: int,
-    stochastic_factor: float,
-    num_threads: int,
-) -> dict[str, Any]:
-    labels = rd.rand(len(mirna_sequences)) <= logit_scores
-    step_lengths = np.linspace(0.000005, 0.00005, num=10)
-
-    results = []
-    for step_length in step_lengths:
-        const_step = create_constant_step(float(step_length))
-        params = estimalign(
-            mirna_sequences,
-            gene_sequences,
-            labels,
-            stepfunction=const_step,
-            aligner_mode="local",
-            substitution_mode="simple",
-            gap_mode="affine",
-            verbose=False,
-            max_iter=max_iter,
-            stochastic_factor=stochastic_factor,
-            num_threads=num_threads,
-        )
-        results.append(
-            {
-                "step_length": float(step_length),
-                "final_loglik": as_float(params.get("final_loglik")),
-                "max_loglik": as_float(max(params.get("loglik_trajectory", [np.nan]))),
-                "alpha": as_float(params.get("alpha")),
-                "match_score": as_float(params.get("match_score")),
-                "mismatch_score": as_float(params.get("mismatch_score")),
-                "open_gap_score": as_float(params.get("open_gap_score")),
-                "extend_gap_score": as_float(params.get("extend_gap_score")),
-            }
-        )
-
-    return {
-        "true_loglik": true_loglik,
-        "runs": results,
-    }
-
-
 def run_simple_mirna_experiment(
     mirna_sequences: list[Seq],
     gene_sequences: list[Seq],
@@ -216,18 +169,14 @@ def run_simple_mirna_experiment(
     aligner.match = truth.match
     aligner.mismatch = truth.mismatch
 
-    scores = np.array(
-        [
-            aligner.score(mirna_sequence, gene_sequence)
-            for mirna_sequence, gene_sequence in zip(
-                mirna_sequences,
-                gene_sequences,
-            )
-        ]
+    scores = score_sequence_pairs(
+        aligner,
+        mirna_sequences,
+        gene_sequences,
     )
 
     logit_scores = logit_partial_scores(scores, truth.alpha)
-    labels = rd.rand(len(mirna_sequences)) <= logit_scores
+    labels = sample_labels(logit_scores)
     true_loglik = compute_loglik(logit_scores, labels)
 
     const_step = create_constant_step(0.00001)
@@ -255,11 +204,165 @@ def run_simple_mirna_experiment(
     }
 
 
+def run_step_length_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    logit_scores: np.ndarray,
+    true_loglik: float,
+    max_iter: int,
+    stochastic_factor: float,
+    num_threads: int,
+) -> dict[str, Any]:
+    labels = sample_labels(logit_scores)
+    step_lengths = np.linspace(0.000005, 0.00005, num=10)
+
+    runs = []
+    for step_length in step_lengths:
+        const_step = create_constant_step(float(step_length))
+        params = estimalign(
+            mirna_sequences,
+            gene_sequences,
+            labels,
+            stepfunction=const_step,
+            aligner_mode="local",
+            substitution_mode="simple",
+            gap_mode="affine",
+            verbose=False,
+            max_iter=max_iter,
+            stochastic_factor=stochastic_factor,
+            num_threads=num_threads,
+        )
+
+        runs.append(
+            {
+                "step_length": float(step_length),
+                **summarize_params(params),
+            }
+        )
+
+    return {
+        "true_loglik": true_loglik,
+        "runs": runs,
+    }
+
+
+def run_replicate_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    logit_scores: np.ndarray,
+    replicate_count: int,
+    max_iter: int,
+    stochastic_factor: float,
+    num_threads: int,
+) -> dict[str, Any]:
+    const_step = create_constant_step(0.00001)
+
+    runs = []
+    true_logliks = []
+    final_logliks = []
+
+    for replicate_index in range(replicate_count):
+        labels = sample_labels(logit_scores)
+        true_loglik = compute_loglik(logit_scores, labels)
+
+        params = estimalign(
+            mirna_sequences,
+            gene_sequences,
+            labels,
+            stepfunction=const_step,
+            aligner_mode="local",
+            substitution_mode="simple",
+            gap_mode="affine",
+            verbose=False,
+            max_iter=max_iter,
+            stochastic_factor=stochastic_factor,
+            num_threads=num_threads,
+        )
+
+        run_summary = {
+            "replicate_index": replicate_index,
+            "true_loglik": true_loglik,
+            **summarize_params(params),
+        }
+
+        runs.append(run_summary)
+        true_logliks.append(true_loglik)
+
+        final_loglik = run_summary.get("final_loglik")
+        if final_loglik is not None:
+            final_logliks.append(final_loglik)
+
+    return {
+        "replicate_count": replicate_count,
+        "max_iter": max_iter,
+        "mean_true_loglik": float(np.mean(true_logliks))
+        if true_logliks
+        else None,
+        "mean_final_loglik": float(np.mean(final_logliks))
+        if final_logliks
+        else None,
+        "true_logliks": true_logliks,
+        "final_logliks": final_logliks,
+        "runs": runs,
+    }
+
+
+def score_sequence_pairs(
+    aligner: PairwiseAligner,
+    first_sequences: list[Seq],
+    second_sequences: list[Seq],
+) -> np.ndarray:
+    return np.array(
+        [
+            aligner.score(first_sequence, second_sequence)
+            for first_sequence, second_sequence in zip(
+                first_sequences,
+                second_sequences,
+            )
+        ]
+    )
+
+
+def sample_labels(logit_scores: np.ndarray) -> np.ndarray:
+    return rd.rand(len(logit_scores)) <= logit_scores
+
+
 def compute_loglik(logit_scores: np.ndarray, labels: np.ndarray) -> float:
     return float(
         np.sum(np.log(logit_scores[labels]))
         + np.sum(np.log(1 - logit_scores[~labels]))
     )
+
+
+def summarize_simple_model(result: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "true_loglik": result["true_loglik"],
+        **summarize_params(result["params"]),
+    }
+
+
+def summarize_params(params: dict[str, Any]) -> dict[str, Any]:
+    loglik_trajectory = params.get("loglik_trajectory", [])
+
+    summary = {
+        "final_loglik": as_float(params.get("final_loglik")),
+        "max_loglik": as_float(max(loglik_trajectory))
+        if len(loglik_trajectory) > 0
+        else None,
+        "alpha": as_float(params.get("alpha")),
+        "match_score": as_float(params.get("match_score")),
+        "mismatch_score": as_float(params.get("mismatch_score")),
+        "open_gap_score": as_float(params.get("open_gap_score")),
+        "extend_gap_score": as_float(params.get("extend_gap_score")),
+    }
+
+    return {
+        key: value
+        for key, value in summary.items()
+        if value is not None
+    }
 
 
 def as_float(value: Any) -> float | None:
