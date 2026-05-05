@@ -92,6 +92,16 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
     )
 
+    step_result = run_step_length_experiment(
+        mirna_sequences,
+        gene_sequences,
+        logit_scores=simple_result["logit_scores"],
+        true_loglik=simple_result["true_loglik"],
+        max_iter=config.step_max_iter,
+        stochastic_factor=config.stochastic_factor,
+        num_threads=config.num_threads,
+    )
+
     summary = {
         "config": {
             **asdict(config),
@@ -112,7 +122,8 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
             "extend_gap_score": as_float(
                 simple_result["params"].get("extend_gap_score")
             ),
-        },
+        },        
+        "step_length_experiment": step_result,
     }
 
     write_json(config.output_dir / "simulation_summary.json", summary)
@@ -138,6 +149,54 @@ def load_mirbench_sequences(
         for seq in dataset["gene"]
     ]
     return mirna_sequences, gene_sequences
+
+
+def run_step_length_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    logit_scores: np.ndarray,
+    true_loglik: float,
+    max_iter: int,
+    stochastic_factor: float,
+    num_threads: int,
+) -> dict[str, Any]:
+    labels = rd.rand(len(mirna_sequences)) <= logit_scores
+    step_lengths = np.linspace(0.000005, 0.00005, num=10)
+
+    results = []
+    for step_length in step_lengths:
+        const_step = create_constant_step(float(step_length))
+        params = estimalign(
+            mirna_sequences,
+            gene_sequences,
+            labels,
+            stepfunction=const_step,
+            aligner_mode="local",
+            substitution_mode="simple",
+            gap_mode="affine",
+            verbose=False,
+            max_iter=max_iter,
+            stochastic_factor=stochastic_factor,
+            num_threads=num_threads,
+        )
+        results.append(
+            {
+                "step_length": float(step_length),
+                "final_loglik": as_float(params.get("final_loglik")),
+                "max_loglik": as_float(max(params.get("loglik_trajectory", [np.nan]))),
+                "alpha": as_float(params.get("alpha")),
+                "match_score": as_float(params.get("match_score")),
+                "mismatch_score": as_float(params.get("mismatch_score")),
+                "open_gap_score": as_float(params.get("open_gap_score")),
+                "extend_gap_score": as_float(params.get("extend_gap_score")),
+            }
+        )
+
+    return {
+        "true_loglik": true_loglik,
+        "runs": results,
+    }
 
 
 def run_simple_mirna_experiment(
