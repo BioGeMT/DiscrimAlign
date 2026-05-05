@@ -1,0 +1,10 @@
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Generated outputs
+outputs/
+
+# Local notebooks
+.ipynb_checkpoints/
