@@ -7,85 +7,26 @@ from estimalign.simulation_experiments import run_simulation_experiments
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="estimalign",
-        description="EstimAlign simulation experiment workflows.",
-    )
+    parser = argparse.ArgumentParser(prog="estimalign", description="EstimAlign simulation experiment workflows.")
     subparsers = parser.add_subparsers(dest="command")
 
-    run_parser = subparsers.add_parser(
-        "run-simulation-experiments",
-        help="Run converted simulation experiments.",
-    )
-    run_parser.add_argument(
-        "--output-dir",
-        type=Path,
-        default=Path("outputs/simulation_experiments"),
-        help="Directory for generated outputs.",
-    )
-    run_parser.add_argument(
-        "--dataset-index",
-        type=int,
-        default=0,
-        help="Index from miRBench list_datasets().",
-    )
-    run_parser.add_argument(
-        "--split",
-        default="train",
-        help="miRBench split to use.",
-    )
-    run_parser.add_argument(
-        "--random-seed",
-        type=int,
-        default=7,
-        help="Random seed for reproducibility.",
-    )
-    run_parser.add_argument(
-        "--max-records",
-        type=int,
-        default=None,
-        help="Optional limit on dataset rows for quick tests.",
-    )
-    run_parser.add_argument(
-        "--num-threads",
-        type=int,
-        default=16,
-        help="Number of EstimAlign worker threads.",
-    )
-    run_parser.add_argument(
-        "--simple-max-iter",
-        type=int,
-        default=50,
-        help="Iterations for simple and general simulation experiments.",
-    )
-    run_parser.add_argument(
-        "--step-max-iter",
-        type=int,
-        default=10,
-        help="Iterations for the step-length experiment.",
-    )
-    run_parser.add_argument(
-        "--replicate-max-iter",
-        type=int,
-        default=5,
-        help="Iterations for each replicate experiment.",
-    )
-    run_parser.add_argument(
-        "--replicate-count",
-        type=int,
-        default=20,
-        help="Number of replicate runs.",
-    )
-    run_parser.add_argument(
-        "--no-plots",
-        action="store_true",
-        help="Disable figure generation.",
-    )
-    run_parser.add_argument(
-        "--verbose",
-        action="store_true",
-        help="Print detailed optimizer progress during simulation runs.",
-    )
+    run_parser = subparsers.add_parser("run-simulation-experiments", help="Run converted simulation experiments.")
+    run_parser.add_argument("--output-dir", type=Path, default=Path("outputs/simulation_experiments"), help="Directory for generated outputs.")
+    run_parser.add_argument("--dataset-index", type=int, default=0, help="Index from miRBench list_datasets().")
+    run_parser.add_argument("--split", default="train", help="miRBench split to use.")
+    run_parser.add_argument("--random-seed", type=int, default=7, help="Random seed for reproducibility.")
+    run_parser.add_argument("--max-records", type=int, default=None, help="Optional limit on dataset rows for quick tests.")
+    run_parser.add_argument("--num-threads", type=int, default=16, help="Number of EstimAlign worker threads.")
+    run_parser.add_argument("--simple-max-iter", type=int, default=50, help="Iterations for the simple simulation experiment.")
+    run_parser.add_argument("--general-max-iter", type=int, default=200, help="Iterations for the general substitution matrix experiment.")
+    run_parser.add_argument("--step-max-iter", type=int, default=10, help="Iterations for the step-length experiment.")
+    run_parser.add_argument("--replicate-max-iter", type=int, default=5, help="Iterations for each replicate experiment.")
+    run_parser.add_argument("--replicate-count", type=int, default=20, help="Number of replicate runs.")
+    run_parser.add_argument("--simple-step-length", type=float, default=2e-5, help="Constant step length for the simple simulation experiment.")
+    run_parser.add_argument("--general-step-length", type=float, default=4e-5, help="Constant step length for the general substitution matrix experiment.")
+    run_parser.add_argument("--alpha-mode", choices=["fixed", "negative-median"], default="negative-median", help="How to set alpha for simulated label generation.")
+    run_parser.add_argument("--no-plots", action="store_true", help="Disable figure generation.")
+    run_parser.add_argument("--verbose", action="store_true", help="Print detailed optimizer progress during simulation runs.")
 
     return parser
 
@@ -103,9 +44,13 @@ def main(argv: list[str] | None = None) -> int:
             max_records=args.max_records,
             num_threads=args.num_threads,
             simple_max_iter=args.simple_max_iter,
+            general_max_iter=args.general_max_iter,
             step_max_iter=args.step_max_iter,
             replicate_max_iter=args.replicate_max_iter,
             replicate_count=args.replicate_count,
+            simple_step_length=args.simple_step_length,
+            general_step_length=args.general_step_length,
+            alpha_mode=args.alpha_mode,
             make_plots=not args.no_plots,
             verbose=args.verbose,
         )
