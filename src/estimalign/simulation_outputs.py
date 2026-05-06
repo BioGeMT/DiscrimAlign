@@ -14,6 +14,7 @@ def write_simulation_outputs(
 ) -> None:
     write_json(output_dir / "simulation_summary.json", summary)
     write_simulation_tsv_outputs(output_dir, summary)
+    write_output_readme(output_dir, summary)
 
 
 def write_simulation_tsv_outputs(
@@ -57,6 +58,52 @@ def write_simulation_tsv_outputs(
         summary["general_matrix_experiment"]["substitution_comparison"],
         fieldnames=["char1", "char2", "true", "estimated", "absolute_error"],
     )
+
+
+def write_output_readme(output_dir: Path, summary: dict[str, Any]) -> None:
+    config = summary["config"]
+    dataset = summary["dataset"]
+    content = f"""# EstimAlign simulation run
+
+This directory contains one complete EstimAlign simulation run.
+
+## Run metadata
+
+- Run directory: `{config.get('run_dir', output_dir)}`
+- Output root: `{config.get('output_root', output_dir.parent)}`
+- Dataset index: `{dataset['dataset_index']}`
+- Dataset split: `{dataset['split']}`
+- Sequence pairs: `{dataset['sequence_count']}`
+- Alpha mode: `{config['alpha_mode']}`
+- Simple iterations: `{config['simple_max_iter']}`
+- General matrix iterations: `{config['general_max_iter']}`
+- Step-length iterations: `{config['step_max_iter']}`
+- Replicate iterations: `{config['replicate_max_iter']}`
+- Replicate count: `{config['replicate_count']}`
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `simulation_summary.json` | Complete machine-readable record of the run. |
+| `run.log` | Terminal output captured during the run. Use `--verbose` to include detailed optimizer progress. |
+| `simple_parameter_comparison.tsv` | True vs estimated parameters for the simple scoring model. |
+| `general_parameter_comparison.tsv` | True vs estimated parameters for the general asymmetric matrix model. |
+| `step_length_results.tsv` | Optimizer behavior across constant step lengths. |
+| `simple_replicate_results.tsv` | Replicate runs for the simple scoring model. |
+| `general_replicate_results.tsv` | Replicate runs for the general asymmetric matrix model. |
+| `general_substitution_matrix_comparison.tsv` | Entrywise true vs estimated substitution scores. |
+| `figures/` | PNG figures, when plot generation is enabled. |
+
+## Reading the tables
+
+For parameter-recovery tables, the `true` column is the simulated value, `estimated` is the fitted EstimAlign value, and `absolute_error` is the recovery error.
+
+For replicate tables, each row is one independently sampled label vector fitted with the same model class.
+
+For the substitution matrix comparison, each row corresponds to one ordered character pair `(char1, char2)`.
+"""
+    (output_dir / "README.md").write_text(content, encoding="utf-8")
 
 
 def write_replicate_tsv(output_path: Path, rows: list[dict[str, Any]]) -> None:
