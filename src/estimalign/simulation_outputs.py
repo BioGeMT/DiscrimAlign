@@ -39,9 +39,30 @@ def write_simulation_tsv_outputs(
             "extend_gap_score",
         ],
     )
+    write_replicate_tsv(
+        output_dir / "simple_replicate_results.tsv",
+        summary["simple_replicate_experiment"]["runs"],
+    )
+    write_replicate_tsv(
+        output_dir / "general_replicate_results.tsv",
+        summary["general_replicate_experiment"]["runs"],
+    )
     write_tsv(
-        output_dir / "replicate_results.tsv",
-        summary["replicate_experiment"]["runs"],
+        output_dir / "general_parameter_comparison.tsv",
+        summary["general_matrix_experiment"]["parameter_comparison"],
+        fieldnames=["parameter", "true", "estimated", "absolute_error"],
+    )
+    write_tsv(
+        output_dir / "general_substitution_matrix_comparison.tsv",
+        summary["general_matrix_experiment"]["substitution_comparison"],
+        fieldnames=["char1", "char2", "true", "estimated", "absolute_error"],
+    )
+
+
+def write_replicate_tsv(output_path: Path, rows: list[dict[str, Any]]) -> None:
+    write_tsv(
+        output_path,
+        rows,
         fieldnames=[
             "replicate_index",
             "true_loglik",
@@ -53,16 +74,6 @@ def write_simulation_tsv_outputs(
             "open_gap_score",
             "extend_gap_score",
         ],
-    )
-    write_tsv(
-        output_dir / "general_parameter_comparison.tsv",
-        summary["general_matrix_experiment"]["parameter_comparison"],
-        fieldnames=["parameter", "true", "estimated", "absolute_error"],
-    )
-    write_tsv(
-        output_dir / "general_substitution_matrix_comparison.tsv",
-        summary["general_matrix_experiment"]["substitution_comparison"],
-        fieldnames=["char1", "char2", "true", "estimated", "absolute_error"],
     )
 
 
