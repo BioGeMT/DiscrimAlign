@@ -18,6 +18,8 @@ The command-line workflow runs:
 
 Each run writes a self-contained output directory containing a JSON summary, TSV tables, parameter-recovery reports, a terminal-output log file, an output-specific README, and optional publication-oriented PNG figures.
 
+The first run may download and cache the selected miRBench dataset. Subsequent runs reuse the local miRBench cache when available.
+
 ## Install uv
 
 This project uses `uv` for Python environment and dependency management.
@@ -103,6 +105,8 @@ uv run estimalign run-simulation-experiments
 ```
 
 The full default run uses more records, more iterations, both replicate experiments, and figure generation.
+
+After completion, the terminal prints the generated run directory and the corresponding `run.log` path.
 
 ### Detailed optimizer logs
 
