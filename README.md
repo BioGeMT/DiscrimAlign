@@ -22,10 +22,16 @@ The workflow writes:
 - parameter truth-vs-estimate reports,
 - optional PNG figures.
 
-The original notebook-derived script is kept as a reference:
+The `scripts/` folder keeps the direct notebook-to-Python export as a reference artifact:
 
 ```text
 scripts/simulation_experiments_notebook.py
+```
+
+That file is not the main user-facing pipeline. The maintained command-line workflow lives in:
+
+```text
+src/estimalign/simulation_experiments.py
 ```
 
 ## Install uv
@@ -114,6 +120,14 @@ uv run estimalign run-simulation-experiments
 
 The full default run may take longer because it uses more records, more iterations, and plot generation.
 
+### Detailed optimizer logs
+
+Runs are quiet by default. To print detailed optimizer progress, add `--verbose`:
+
+```bash
+uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots --verbose
+```
+
 ## Command options
 
 ```text
@@ -128,6 +142,7 @@ The full default run may take longer because it uses more records, more iteratio
 --replicate-max-iter     Iterations for each replicate experiment.
 --replicate-count        Number of replicate runs.
 --no-plots               Disable PNG figure generation.
+--verbose                Print detailed optimizer progress.
 ```
 
 ## Outputs
@@ -168,10 +183,29 @@ These reports are useful for checking whether EstimAlign recovers the expected a
 ```text
 outputs/simulation_experiments/step_length_results.tsv
 outputs/simulation_experiments/replicate_results.tsv
-outputs/simulation_experiments/general_matrix_comparison.tsv
+outputs/simulation_experiments/general_substitution_matrix_comparison.tsv
 ```
 
 These TSV files are designed to be easy to inspect in spreadsheet software or load into R, Python, or other analysis tools.
+
+## How to interpret outputs
+
+Start with the parameter recovery reports:
+
+```text
+simple_parameter_comparison.tsv
+general_parameter_comparison.tsv
+```
+
+The `true` column is the parameter value used to simulate labels. The `estimated` column is the value learned by EstimAlign. The `absolute_error` column is the recovery error. Smaller absolute error means the fitted model is closer to the simulated truth.
+
+Use `step_length_results.tsv` to compare optimizer step sizes. Each row is one constant step length. Useful columns are `final_loglik`, `max_loglik`, and the estimated alignment parameters.
+
+Use `replicate_results.tsv` to inspect run-to-run variability. Each row is one replicate with newly sampled labels from the same simulated probability model.
+
+Use `general_substitution_matrix_comparison.tsv` for the general substitution matrix experiment. Each row is one matrix entry. The `char1` and `char2` columns identify the substitution, while `true`, `estimated`, and `absolute_error` compare the simulated and fitted substitution score.
+
+Use `simulation_summary.json` when you need the complete machine-readable record of a run, including configuration, summary metrics, and all nested experiment outputs.
 
 ### Figures
 
@@ -249,7 +283,5 @@ Those experiments should be converted separately with explicit, configurable inp
 
 ## Suggested next improvements
 
-- Add tests for the CLI smoke-test workflow.
-- Add a `--verbose` option so default runs are quieter.
 - Convert protein experiments into separate configurable commands.
 - Add small example output snippets for documentation.
