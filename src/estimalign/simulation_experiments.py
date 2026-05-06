@@ -6,9 +6,14 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+import matplotlib
+
+matplotlib.use("Agg")
+
 import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
 from Bio.Seq import Seq
+from matplotlib import pyplot as plt
 from miRBench.dataset import get_dataset_df, list_datasets
 from numpy import random as rd
 
@@ -84,7 +89,11 @@ def run_simulation_experiments(
 def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
     rd.seed(config.random_seed)
     np.random.seed(config.random_seed)
+
     config.output_dir.mkdir(parents=True, exist_ok=True)
+    figures_dir = config.output_dir / "figures"
+    if config.make_plots:
+        figures_dir.mkdir(parents=True, exist_ok=True)
 
     mirna_sequences, gene_sequences = load_mirbench_sequences(
         dataset_index=config.dataset_index,
@@ -98,6 +107,8 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         max_iter=config.simple_max_iter,
         stochastic_factor=config.stochastic_factor,
         num_threads=config.num_threads,
+        figures_dir=figures_dir,
+        make_plots=config.make_plots,
     )
 
     step_result = run_step_length_experiment(
@@ -108,6 +119,8 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         max_iter=config.step_max_iter,
         stochastic_factor=config.stochastic_factor,
         num_threads=config.num_threads,
+        figures_dir=figures_dir,
+        make_plots=config.make_plots,
     )
 
     replicate_result = run_replicate_experiment(
@@ -118,6 +131,8 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         max_iter=config.replicate_max_iter,
         stochastic_factor=config.stochastic_factor,
         num_threads=config.num_threads,
+        figures_dir=figures_dir,
+        make_plots=config.make_plots,
     )
 
     general_matrix_result = run_general_matrix_experiment(
@@ -126,6 +141,8 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         max_iter=config.simple_max_iter,
         stochastic_factor=0.01,
         num_threads=config.num_threads,
+        figures_dir=figures_dir,
+        make_plots=config.make_plots,
     )
 
     summary = {
@@ -177,6 +194,8 @@ def run_simple_mirna_experiment(
     max_iter: int,
     stochastic_factor: float,
     num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
 ) -> dict[str, Any]:
     truth = SimpleModelTruth()
 
@@ -212,6 +231,38 @@ def run_simple_mirna_experiment(
         num_threads=num_threads,
     )
 
+    if make_plots:
+        plot_histogram(
+            scores,
+            figures_dir / "simple_scores_hist.png",
+            title="Simple model alignment scores",
+        )
+        plot_histogram(
+            logit_scores,
+            figures_dir / "simple_logit_scores_hist.png",
+            title="Simple model logit scores",
+        )
+        plot_label_scatter(
+            scores,
+            labels,
+            figures_dir / "simple_scores_vs_labels.png",
+            title="Simple model scores vs labels",
+            xlabel="Alignment score",
+        )
+        plot_label_scatter(
+            logit_scores,
+            labels,
+            figures_dir / "simple_logit_scores_vs_labels.png",
+            title="Simple model logit scores vs labels",
+            xlabel="Logit score",
+        )
+        plot_optimization_trajectories(
+            params,
+            max_iter=max_iter,
+            true_loglik=true_loglik,
+            output_path=figures_dir / "simple_optimization_trajectory.png",
+        )
+
     return {
         "truth": truth,
         "scores": scores,
@@ -231,11 +282,14 @@ def run_step_length_experiment(
     max_iter: int,
     stochastic_factor: float,
     num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
 ) -> dict[str, Any]:
     labels = sample_labels(logit_scores)
     step_lengths = np.linspace(0.000005, 0.00005, num=10)
 
     runs = []
+    raw_results = []
     for step_length in step_lengths:
         const_step = create_constant_step(float(step_length))
         params = estimalign(
@@ -252,11 +306,29 @@ def run_step_length_experiment(
             num_threads=num_threads,
         )
 
+        raw_results.append(params)
         runs.append(
             {
                 "step_length": float(step_length),
                 **summarize_params(params),
             }
+        )
+
+    if make_plots:
+        plot_step_length_loglikelihoods(
+            raw_results,
+            step_lengths,
+            max_iter=max_iter,
+            true_loglik=true_loglik,
+            output_path=figures_dir / "step_length_loglikelihoods.png",
+        )
+        plot_step_length_loglikelihoods(
+            raw_results,
+            step_lengths,
+            max_iter=max_iter,
+            true_loglik=true_loglik,
+            output_path=figures_dir / "step_length_loglikelihoods_zoom.png",
+            xlim=(0, min(5, max_iter)),
         )
 
     return {
@@ -274,10 +346,13 @@ def run_replicate_experiment(
     max_iter: int,
     stochastic_factor: float,
     num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
 ) -> dict[str, Any]:
     const_step = create_constant_step(0.00001)
 
     runs = []
+    raw_results = []
     true_logliks = []
     final_logliks = []
 
@@ -305,12 +380,21 @@ def run_replicate_experiment(
             **summarize_params(params),
         }
 
+        raw_results.append(params)
         runs.append(run_summary)
         true_logliks.append(true_loglik)
 
         final_loglik = run_summary.get("final_loglik")
         if final_loglik is not None:
             final_logliks.append(final_loglik)
+
+    if make_plots:
+        plot_replicate_loglikelihoods(
+            raw_results,
+            true_logliks,
+            max_iter=max_iter,
+            output_path=figures_dir / "replicate_loglikelihoods.png",
+        )
 
     return {
         "replicate_count": replicate_count,
@@ -334,6 +418,8 @@ def run_general_matrix_experiment(
     max_iter: int,
     stochastic_factor: float,
     num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
 ) -> dict[str, Any]:
     truth = GeneralMatrixTruth()
 
@@ -384,6 +470,28 @@ def run_general_matrix_experiment(
         true_substitution,
         params["substitution_matrix"],
     )
+
+    if make_plots:
+        plot_histogram(
+            scores,
+            figures_dir / "general_scores_hist.png",
+            title="General matrix alignment scores",
+        )
+        plot_histogram(
+            logit_scores,
+            figures_dir / "general_logit_scores_hist.png",
+            title="General matrix logit scores",
+        )
+        plot_optimization_trajectories(
+            params,
+            max_iter=max_iter,
+            true_loglik=true_loglik,
+            output_path=figures_dir / "general_optimization_trajectory.png",
+        )
+        plot_substitution_comparison(
+            substitution_comparison,
+            figures_dir / "general_substitution_comparison.png",
+        )
 
     return {
         "truth": {
@@ -558,6 +666,171 @@ def write_tsv(
         )
         writer.writeheader()
         writer.writerows(rows)
+
+
+def plot_histogram(
+    values: np.ndarray,
+    output_path: Path,
+    *,
+    title: str,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure()
+    plt.hist(values, bins=100)
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
+
+
+def plot_label_scatter(
+    x_values: np.ndarray,
+    labels: np.ndarray,
+    output_path: Path,
+    *,
+    title: str,
+    xlabel: str,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure()
+    plt.plot(x_values, labels, ".", alpha=0.1)
+    plt.xlabel(xlabel)
+    plt.ylabel("Label")
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
+
+
+def plot_optimization_trajectories(
+    params: dict[str, Any],
+    *,
+    max_iter: int,
+    true_loglik: float,
+    output_path: Path,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(8, 6))
+
+    plt.subplot(221)
+    plt.plot(np.arange(max_iter), params["subgradient_l2_trajectory"])
+    plt.plot([0, max_iter], [0, 0], "--")
+    plt.title("Subgradient L2 norm trajectory")
+
+    plt.subplot(222)
+    plt.plot(np.arange(max_iter + 1), params["loglik_trajectory"])
+    plt.plot([0, max_iter + 1], [true_loglik, true_loglik], "--")
+    plt.title("LogLikelihood trajectory")
+
+    plt.subplot(223)
+    plt.plot(
+        np.arange(max_iter // 2, max_iter),
+        params["subgradient_l2_trajectory"][max_iter // 2 :],
+    )
+    plt.plot([max_iter // 2, max_iter], [0, 0], "--")
+    plt.title("Subgradient L2 norm trajectory")
+
+    plt.subplot(224)
+    plt.plot(
+        np.arange(max_iter // 2, max_iter + 1),
+        params["loglik_trajectory"][max_iter // 2 :],
+    )
+    plt.plot([max_iter // 2, max_iter + 1], [true_loglik, true_loglik], "--")
+    plt.title("LogLikelihood trajectory")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
+
+
+def plot_step_length_loglikelihoods(
+    results: list[dict[str, Any]],
+    step_lengths: np.ndarray,
+    *,
+    max_iter: int,
+    true_loglik: float,
+    output_path: Path,
+    xlim: tuple[int, int] | None = None,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure()
+    for params in results:
+        plt.plot(
+            np.arange(max_iter + 1),
+            params["loglik_trajectory"],
+            alpha=0.5,
+        )
+
+    plt.plot([0, max_iter], [true_loglik, true_loglik], "--")
+    plt.legend([str(value) for value in step_lengths])
+
+    if xlim is not None:
+        plt.xlim(*xlim)
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
+
+
+def plot_replicate_loglikelihoods(
+    results: list[dict[str, Any]],
+    true_logliks: list[float],
+    *,
+    max_iter: int,
+    output_path: Path,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    plt.figure(figsize=(7.5, 2.1))
+
+    plt.subplot(121)
+    for params in results:
+        plt.plot(
+            np.arange(max_iter + 1),
+            params["loglik_trajectory"],
+            alpha=0.2,
+        )
+    plt.title("Replicate loglikelihoods")
+
+    plt.subplot(122)
+    plt.plot([0, max_iter], [0, 0], "--")
+    for params, true_loglik in zip(results, true_logliks):
+        plt.plot(
+            np.arange(max_iter + 1),
+            true_loglik - params["loglik_trajectory"],
+            alpha=0.2,
+        )
+    plt.title("True minus fitted loglikelihood")
+
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
+
+
+def plot_substitution_comparison(
+    comparison: dict[str, Any],
+    output_path: Path,
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    rows = comparison["rows"]
+
+    plt.figure()
+    plt.plot(
+        [row["true"] for row in rows],
+        [row["estimated"] for row in rows],
+        ".",
+    )
+    plt.xlabel("True substitution score")
+    plt.ylabel("Estimated substitution score")
+    plt.title("General matrix substitution comparison")
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=160)
+    plt.close()
 
 
 def as_float(value: Any) -> float | None:
