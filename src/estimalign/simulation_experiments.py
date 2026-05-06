@@ -471,6 +471,15 @@ def run_general_matrix_experiment(
         params["substitution_matrix"],
     )
 
+    parameter_comparison = compare_named_parameters(
+        truth={
+            "alpha": truth.alpha,
+            "open_gap_score": truth.gap_open,
+            "extend_gap_score": truth.gap_extend,
+        },
+        estimates=params,
+    )
+
     if make_plots:
         plot_histogram(
             scores,
@@ -501,12 +510,34 @@ def run_general_matrix_experiment(
         },
         "true_loglik": true_loglik,
         **summarize_params(params),
+        "parameter_comparison": parameter_comparison,
         "substitution_correlation": substitution_comparison["correlation"],
         "substitution_mean_absolute_error": substitution_comparison[
             "mean_absolute_error"
         ],
         "substitution_comparison": substitution_comparison["rows"],
     }
+
+
+def compare_named_parameters(
+    *,
+    truth: dict[str, float],
+    estimates: dict[str, Any],
+) -> list[dict[str, float | str | None]]:
+    rows = []
+    for parameter, true_value in truth.items():
+        estimated_value = as_float(estimates.get(parameter))
+        rows.append(
+            {
+                "parameter": parameter,
+                "true": float(true_value),
+                "estimated": estimated_value,
+                "absolute_error": abs(float(true_value) - estimated_value)
+                if estimated_value is not None
+                else None,
+            }
+        )
+    return rows
 
 
 def compare_substitution_matrices(
@@ -573,9 +604,23 @@ def compute_loglik(logit_scores: np.ndarray, labels: np.ndarray) -> float:
 
 
 def summarize_simple_model(result: dict[str, Any]) -> dict[str, Any]:
+    truth = result["truth"]
+    params = result["params"]
+    parameter_comparison = compare_named_parameters(
+        truth={
+            "alpha": truth.alpha,
+            "match_score": truth.match,
+            "mismatch_score": truth.mismatch,
+            "open_gap_score": truth.gap_open,
+            "extend_gap_score": truth.gap_extend,
+        },
+        estimates=params,
+    )
+
     return {
         "true_loglik": result["true_loglik"],
-        **summarize_params(result["params"]),
+        **summarize_params(params),
+        "parameter_comparison": parameter_comparison,
     }
 
 
@@ -606,6 +651,17 @@ def write_simulation_tsv_outputs(
     summary: dict[str, Any],
 ) -> None:
     write_tsv(
+        output_dir / "simple_parameter_comparison.tsv",
+        summary["simple_model"]["parameter_comparison"],
+        fieldnames=[
+            "parameter",
+            "true",
+            "estimated",
+            "absolute_error",
+        ],
+    )
+
+    write_tsv(
         output_dir / "step_length_results.tsv",
         summary["step_length_experiment"]["runs"],
         fieldnames=[
@@ -633,6 +689,17 @@ def write_simulation_tsv_outputs(
             "mismatch_score",
             "open_gap_score",
             "extend_gap_score",
+        ],
+    )
+
+    write_tsv(
+        output_dir / "general_parameter_comparison.tsv",
+        summary["general_matrix_experiment"]["parameter_comparison"],
+        fieldnames=[
+            "parameter",
+            "true",
+            "estimated",
+            "absolute_error",
         ],
     )
 
