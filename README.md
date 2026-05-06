@@ -1,8 +1,8 @@
 # EstimAlign
 
-EstimAlign is a Python toolkit for estimating sequence-alignment parameters from labeled pairs of biological sequences. It learns substitution weights and gap penalties from data and reports optimization summaries, parameter-recovery tables, and diagnostic figures.
+EstimAlign is a Python toolkit for estimating sequence-alignment parameters from labeled pairs of biological sequences. It learns substitution weights and gap penalties from data and reports optimization summaries, parameter-recovery tables, terminal logs, and diagnostic figures.
 
-This repository now includes a `uv`-managed Python environment and a command-line workflow converted from the non-protein simulation sections of `Simulation experiments.ipynb`.
+This repository now includes a `uv`-managed Python environment and a command-line workflow converted from the non-protein simulation sections of the original simulation notebook.
 
 The current converted workflow focuses on miRNA simulation experiments as a validation example. EstimAlign itself is not limited to miRNA data.
 
@@ -20,19 +20,8 @@ The workflow writes:
 - a JSON summary,
 - TSV tables for downstream analysis,
 - parameter truth-vs-estimate reports,
+- a terminal-output log file,
 - optional PNG figures.
-
-The `scripts/` folder keeps the direct notebook-to-Python export as a reference artifact:
-
-```text
-scripts/simulation_experiments_notebook.py
-```
-
-That file is not the main user-facing pipeline. The maintained command-line workflow lives in:
-
-```text
-src/estimalign/simulation_experiments.py
-```
 
 ## Install uv
 
@@ -122,7 +111,7 @@ The full default run may take longer because it uses more records, more iteratio
 
 ### Detailed optimizer logs
 
-Runs are quiet by default. To print detailed optimizer progress, add `--verbose`:
+Runs write terminal output to `outputs/simulation_experiments/run.log`. Runs are quiet unless you add `--verbose`:
 
 ```bash
 uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots --verbose
@@ -142,7 +131,7 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 --replicate-max-iter     Iterations for each replicate experiment.
 --replicate-count        Number of replicate runs.
 --no-plots               Disable PNG figure generation.
---verbose                Print detailed optimizer progress.
+--verbose                Print detailed optimizer progress to the run log.
 ```
 
 ## Outputs
@@ -152,6 +141,14 @@ By default, generated outputs are written to:
 ```text
 outputs/simulation_experiments/
 ```
+
+### Run log
+
+```text
+outputs/simulation_experiments/run.log
+```
+
+This file captures terminal output from the run, including miRBench messages and detailed optimizer progress when `--verbose` is used.
 
 ### JSON summary
 
@@ -207,6 +204,8 @@ Use `general_substitution_matrix_comparison.tsv` for the general substitution ma
 
 Use `simulation_summary.json` when you need the complete machine-readable record of a run, including configuration, summary metrics, and all nested experiment outputs.
 
+Use `run.log` when you need to inspect terminal messages or detailed optimizer progress.
+
 ### Figures
 
 When plots are enabled, figures are written to:
@@ -243,9 +242,9 @@ __pycache__/
 .ipynb_checkpoints/
 ```
 
-Do not commit generated JSON, TSV, PNG, cache, or notebook checkpoint files.
+Do not commit generated JSON, TSV, PNG, log, cache, or notebook checkpoint files.
 
-## Development notes
+## Code layout
 
 Package source lives under:
 
@@ -253,33 +252,26 @@ Package source lives under:
 src/estimalign/
 ```
 
-The command-line entrypoint is defined in:
+Important workflow files:
 
 ```text
-src/estimalign/cli.py
-```
-
-The converted simulation workflow is implemented in:
-
-```text
-src/estimalign/simulation_experiments.py
+src/estimalign/cli.py                         Command-line interface.
+src/estimalign/simulation_experiments.py      Main orchestration for the simulation workflow.
+src/estimalign/simulation_config.py           Dataclasses for run configuration and simulation truths.
+src/estimalign/simulation_dataset.py          miRBench dataset loading.
+src/estimalign/simulation_model_experiments.py Experiment-specific simulation steps.
+src/estimalign/simulation_metrics.py          Scoring, likelihood, and parameter-comparison helpers.
+src/estimalign/simulation_outputs.py          JSON and TSV writers.
+src/estimalign/simulation_plots.py            Figure generation helpers.
 ```
 
 The project is packaged through `pyproject.toml` and locked with `uv.lock`.
 
 ## Current scope
 
-The current command-line workflow covers the non-protein simulation/validation sections of `Simulation experiments.ipynb`.
+The current command-line workflow covers the non-protein simulation/validation sections of the original simulation notebook.
 
-The protein sections of the notebook are not included in the main command-line workflow yet. Those sections include simulated protein alignments and a human/chicken proteome experiment that depends on local protein files, including:
-
-```text
-Proteomes/human_to_chicken_upto1000aa.blast
-Proteomes/GCF_000001405.40/up_to_1000.faa
-Proteomes/GCF_016699485.2/up_to_1000.faa
-```
-
-Those experiments should be converted separately with explicit, configurable input paths before being added to the main workflow.
+The protein experiments are not included in the main command-line workflow yet. They should be converted separately with explicit, configurable input paths before being added to the package.
 
 ## Suggested next improvements
 
