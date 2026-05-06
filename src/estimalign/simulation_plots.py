@@ -158,9 +158,10 @@ def plot_replicate_loglikelihoods(
     fig, axes = plt.subplots(1, 2, figsize=(8.6, 3.2))
 
     for params in results:
+        loglik_trajectory = np.asarray(params["loglik_trajectory"], dtype=float)
         axes[0].plot(
             np.arange(max_iter + 1),
-            params["loglik_trajectory"],
+            loglik_trajectory,
             alpha=0.35,
             linewidth=1.2,
         )
@@ -170,9 +171,10 @@ def plot_replicate_loglikelihoods(
 
     axes[1].axhline(0, linestyle="--", linewidth=1.0)
     for params, true_loglik in zip(results, true_logliks):
+        loglik_trajectory = np.asarray(params["loglik_trajectory"], dtype=float)
         axes[1].plot(
             np.arange(max_iter + 1),
-            true_loglik - params["loglik_trajectory"],
+            true_loglik - loglik_trajectory,
             alpha=0.35,
             linewidth=1.2,
         )
