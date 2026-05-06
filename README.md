@@ -2,11 +2,11 @@
 
 EstimAlign is a Python toolkit for estimating sequence-alignment parameters from labeled pairs of biological sequences. It learns substitution weights and gap penalties from data and reports optimization summaries, parameter-recovery tables, terminal logs, and diagnostic figures.
 
-This repository includes a `uv`-managed Python environment and a command-line workflow for the non-protein simulated-interaction validation experiments. The workflow uses miRBench RNA sequence pairs as realistic sequence inputs and simulates labels from known alignment parameters so that parameter recovery can be evaluated directly.
+This repository includes a `uv`-managed Python environment and a command-line workflow for non-protein simulated-interaction validation experiments. The workflow uses miRBench RNA sequence pairs as realistic sequence inputs and simulates labels from known alignment parameters so that parameter recovery can be evaluated directly.
 
-EstimAlign itself is not limited to miRNA data. The miRNA/RNA simulation workflow is the included validation workflow for this package.
+EstimAlign itself is not limited to miRNA data. The RNA simulation workflow is the included validation workflow for this package.
 
-## What the simulation workflow does
+## Simulation workflow
 
 The command-line workflow runs:
 
@@ -16,13 +16,7 @@ The command-line workflow runs:
 4. A general asymmetric substitution matrix experiment with affine gap penalties.
 5. A general/asymmetric replicate experiment matching the robustness check used in the manuscript simulations.
 
-The workflow writes:
-
-- a JSON summary,
-- TSV tables for downstream analysis,
-- parameter truth-vs-estimate reports,
-- a terminal-output log file,
-- optional PNG figures.
+Each run writes a self-contained output directory containing a JSON summary, TSV tables, parameter-recovery reports, a terminal-output log file, an output-specific README, and optional publication-oriented PNG figures.
 
 ## Install uv
 
@@ -56,7 +50,7 @@ Restart your shell, or follow the installer's shell-profile instructions. Then c
 uv --version
 ```
 
-## Setup the project
+## Setup
 
 Clone the repository and enter the project directory.
 
@@ -84,9 +78,9 @@ uv run estimalign --help
 
 ## Run the simulation experiments
 
-### Quick smoke test without plots
+### Short verification run
 
-Use this first to confirm that the environment and workflow are working.
+Use a small number of records and iterations to verify that the workflow and environment are functioning:
 
 ```bash
 uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots
@@ -94,25 +88,25 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 
 The same command works in Windows PowerShell.
 
-### Quick smoke test with plots
+### Short verification run with figures
 
-Run the smoke test without `--no-plots`:
+Run the same reduced configuration without `--no-plots`:
 
 ```bash
 uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2
 ```
 
-### Full default run
+### Full run
 
 ```bash
 uv run estimalign run-simulation-experiments
 ```
 
-The full default run may take longer because it uses more records, more iterations, both replicate experiments, and plot generation.
+The full default run uses more records, more iterations, both replicate experiments, and figure generation.
 
 ### Detailed optimizer logs
 
-Runs write terminal output to `outputs/simulation_experiments/run.log`. Runs are quiet unless you add `--verbose`:
+Runs write terminal output to `run.log` inside the run directory. Runs are quiet unless `--verbose` is supplied:
 
 ```bash
 uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots --verbose
@@ -121,11 +115,11 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 ## Command options
 
 ```text
---output-dir             Directory for generated outputs.
+--output-dir             Root directory for generated run folders.
 --dataset-index          Dataset index from miRBench list_datasets().
 --split                  miRBench split to use. Default: train.
 --random-seed            Random seed for reproducibility.
---max-records            Optional row limit for quick tests.
+--max-records            Optional row limit for reduced runs.
 --num-threads            Number of EstimAlign worker threads.
 --simple-max-iter        Iterations for the simple simulation experiment. Default: 50.
 --general-max-iter       Iterations for the general matrix experiment. Default: 200.
@@ -141,18 +135,41 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 
 `--alpha-mode negative-median` sets the simulation intercept to the negative median alignment score, which produces a roughly balanced simulated label distribution. `--alpha-mode fixed` uses the historical fixed notebook values for alpha.
 
-## Outputs
+## Output layout
 
-By default, generated outputs are written to:
+By default, outputs are organized under:
 
 ```text
 outputs/simulation_experiments/
 ```
 
+Each command creates a new timestamped run directory:
+
+```text
+outputs/simulation_experiments/run_YYYYMMDD_HHMMSS/
+```
+
+A run directory contains:
+
+```text
+README.md
+run.log
+simulation_summary.json
+simple_parameter_comparison.tsv
+general_parameter_comparison.tsv
+step_length_results.tsv
+simple_replicate_results.tsv
+general_replicate_results.tsv
+general_substitution_matrix_comparison.tsv
+figures/
+```
+
+The output-specific `README.md` summarizes the configuration and explains the files in that run directory.
+
 ### Run log
 
 ```text
-outputs/simulation_experiments/run.log
+run.log
 ```
 
 This file captures terminal output from the run, including miRBench messages and detailed optimizer progress when `--verbose` is used.
@@ -160,18 +177,16 @@ This file captures terminal output from the run, including miRBench messages and
 ### JSON summary
 
 ```text
-outputs/simulation_experiments/simulation_summary.json
+simulation_summary.json
 ```
 
 This file contains the run configuration, dataset summary, per-experiment results, and parameter-comparison sections.
 
 ### Parameter recovery reports
 
-These files compare the simulated truth against the fitted EstimAlign parameters:
-
 ```text
-outputs/simulation_experiments/simple_parameter_comparison.tsv
-outputs/simulation_experiments/general_parameter_comparison.tsv
+simple_parameter_comparison.tsv
+general_parameter_comparison.tsv
 ```
 
 Each table contains:
@@ -180,29 +195,22 @@ Each table contains:
 parameter    true    estimated    absolute_error
 ```
 
-These reports are useful for checking whether EstimAlign recovers the expected alignment parameters from the simulated labels.
+These reports compare the simulated truth against the fitted EstimAlign parameters.
 
 ### Experiment result tables
 
 ```text
-outputs/simulation_experiments/step_length_results.tsv
-outputs/simulation_experiments/simple_replicate_results.tsv
-outputs/simulation_experiments/general_replicate_results.tsv
-outputs/simulation_experiments/general_substitution_matrix_comparison.tsv
+step_length_results.tsv
+simple_replicate_results.tsv
+general_replicate_results.tsv
+general_substitution_matrix_comparison.tsv
 ```
 
 These TSV files are designed to be easy to inspect in spreadsheet software or load into R, Python, or other analysis tools.
 
 ## How to interpret outputs
 
-Start with the parameter recovery reports:
-
-```text
-simple_parameter_comparison.tsv
-general_parameter_comparison.tsv
-```
-
-The `true` column is the parameter value used to simulate labels. The `estimated` column is the value learned by EstimAlign. The `absolute_error` column is the recovery error. Smaller absolute error means the fitted model is closer to the simulated truth.
+Start with the parameter recovery reports. The `true` column is the parameter value used to simulate labels. The `estimated` column is the value learned by EstimAlign. The `absolute_error` column is the recovery error. Smaller absolute error means the fitted model is closer to the simulated truth.
 
 Use `step_length_results.tsv` to compare optimizer step sizes. Each row is one constant step length. Useful columns are `final_loglik`, `max_loglik`, and the estimated alignment parameters.
 
@@ -221,7 +229,7 @@ Use `run.log` when you need to inspect terminal messages or detailed optimizer p
 When plots are enabled, figures are written to:
 
 ```text
-outputs/simulation_experiments/figures/
+figures/
 ```
 
 Expected figure files include:
@@ -241,6 +249,8 @@ general_logit_scores_hist.png
 general_optimization_trajectory.png
 general_substitution_comparison.png
 ```
+
+The figures are exported at high resolution and formatted with consistent typography, axis labels, gridlines, and legends suitable for manuscript inspection.
 
 ## Generated files and git
 
@@ -266,14 +276,14 @@ src/estimalign/
 Important workflow files:
 
 ```text
-src/estimalign/cli.py                         Command-line interface.
-src/estimalign/simulation_experiments.py      Main orchestration for the simulation workflow.
-src/estimalign/simulation_config.py           Dataclasses for run configuration and simulation truths.
-src/estimalign/simulation_dataset.py          miRBench dataset loading.
+src/estimalign/cli.py                          Command-line interface.
+src/estimalign/simulation_experiments.py       Main orchestration for the simulation workflow.
+src/estimalign/simulation_config.py            Dataclasses for run configuration and simulation truths.
+src/estimalign/simulation_dataset.py           miRBench dataset loading.
 src/estimalign/simulation_model_experiments.py Experiment-specific simulation steps.
-src/estimalign/simulation_metrics.py          Scoring, likelihood, and parameter-comparison helpers.
-src/estimalign/simulation_outputs.py          JSON and TSV writers.
-src/estimalign/simulation_plots.py            Figure generation helpers.
+src/estimalign/simulation_metrics.py           Scoring, likelihood, and parameter-comparison helpers.
+src/estimalign/simulation_outputs.py           JSON, TSV, and output README writers.
+src/estimalign/simulation_plots.py             Figure generation helpers.
 ```
 
 The project is packaged through `pyproject.toml` and locked with `uv.lock`.
