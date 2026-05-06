@@ -8,12 +8,13 @@ from typing import Any
 import numpy as np
 from numpy import random as rd
 
-from estimalign.simulation_config import SimulationConfig
+from estimalign.simulation_config import AlphaMode, SimulationConfig
 from estimalign.simulation_dataset import load_mirbench_sequences
 from estimalign.simulation_model_experiments import (
     run_general_matrix_experiment,
-    run_replicate_experiment,
+    run_general_replicate_experiment,
     run_simple_mirna_experiment,
+    run_simple_replicate_experiment,
     run_step_length_experiment,
     summarize_simple_model,
 )
@@ -30,9 +31,13 @@ def run_simulation_experiments(
     num_threads: int = 16,
     stochastic_factor: float = 0.001,
     simple_max_iter: int = 50,
+    general_max_iter: int = 200,
     step_max_iter: int = 10,
     replicate_max_iter: int = 5,
     replicate_count: int = 20,
+    simple_step_length: float = 2e-5,
+    general_step_length: float = 4e-5,
+    alpha_mode: AlphaMode = "negative-median",
     make_plots: bool = True,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -45,9 +50,13 @@ def run_simulation_experiments(
         num_threads=num_threads,
         stochastic_factor=stochastic_factor,
         simple_max_iter=simple_max_iter,
+        general_max_iter=general_max_iter,
         step_max_iter=step_max_iter,
         replicate_max_iter=replicate_max_iter,
         replicate_count=replicate_count,
+        simple_step_length=simple_step_length,
+        general_step_length=general_step_length,
+        alpha_mode=alpha_mode,
         make_plots=make_plots,
         verbose=verbose,
     )
@@ -85,6 +94,8 @@ def _run_mirna_simulation_suite(
         mirna_sequences,
         gene_sequences,
         max_iter=config.simple_max_iter,
+        step_length=config.simple_step_length,
+        alpha_mode=config.alpha_mode,
         stochastic_factor=config.stochastic_factor,
         num_threads=config.num_threads,
         figures_dir=figures_dir,
@@ -105,12 +116,13 @@ def _run_mirna_simulation_suite(
         verbose=config.verbose,
     )
 
-    replicate_result = run_replicate_experiment(
+    simple_replicate_result = run_simple_replicate_experiment(
         mirna_sequences,
         gene_sequences,
         logit_scores=simple_result["logit_scores"],
         replicate_count=config.replicate_count,
         max_iter=config.replicate_max_iter,
+        step_length=config.simple_step_length,
         stochastic_factor=config.stochastic_factor,
         num_threads=config.num_threads,
         figures_dir=figures_dir,
@@ -121,7 +133,23 @@ def _run_mirna_simulation_suite(
     general_matrix_result = run_general_matrix_experiment(
         mirna_sequences,
         gene_sequences,
-        max_iter=config.simple_max_iter,
+        max_iter=config.general_max_iter,
+        step_length=config.general_step_length,
+        alpha_mode=config.alpha_mode,
+        stochastic_factor=0.01,
+        num_threads=config.num_threads,
+        figures_dir=figures_dir,
+        make_plots=config.make_plots,
+        verbose=config.verbose,
+    )
+
+    general_replicate_result = run_general_replicate_experiment(
+        mirna_sequences,
+        gene_sequences,
+        logit_scores=general_matrix_result["logit_scores"],
+        replicate_count=config.replicate_count,
+        max_iter=config.replicate_max_iter,
+        step_length=config.general_step_length,
         stochastic_factor=0.01,
         num_threads=config.num_threads,
         figures_dir=figures_dir,
@@ -142,8 +170,9 @@ def _run_mirna_simulation_suite(
         },
         "simple_model": summarize_simple_model(simple_result),
         "step_length_experiment": step_result,
-        "replicate_experiment": replicate_result,
+        "simple_replicate_experiment": simple_replicate_result,
         "general_matrix_experiment": general_matrix_result,
+        "general_replicate_experiment": general_replicate_result,
     }
 
     write_simulation_outputs(config.output_dir, summary)
