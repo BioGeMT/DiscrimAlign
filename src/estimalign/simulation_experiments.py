@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -144,6 +145,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
     }
 
     write_json(config.output_dir / "simulation_summary.json", summary)
+    write_simulation_tsv_outputs(config.output_dir, summary)
     return summary
 
 
@@ -489,6 +491,73 @@ def summarize_params(params: dict[str, Any]) -> dict[str, Any]:
         for key, value in summary.items()
         if value is not None
     }
+
+
+def write_simulation_tsv_outputs(
+    output_dir: Path,
+    summary: dict[str, Any],
+) -> None:
+    write_tsv(
+        output_dir / "step_length_results.tsv",
+        summary["step_length_experiment"]["runs"],
+        fieldnames=[
+            "step_length",
+            "final_loglik",
+            "max_loglik",
+            "alpha",
+            "match_score",
+            "mismatch_score",
+            "open_gap_score",
+            "extend_gap_score",
+        ],
+    )
+
+    write_tsv(
+        output_dir / "replicate_results.tsv",
+        summary["replicate_experiment"]["runs"],
+        fieldnames=[
+            "replicate_index",
+            "true_loglik",
+            "final_loglik",
+            "max_loglik",
+            "alpha",
+            "match_score",
+            "mismatch_score",
+            "open_gap_score",
+            "extend_gap_score",
+        ],
+    )
+
+    write_tsv(
+        output_dir / "general_matrix_comparison.tsv",
+        summary["general_matrix_experiment"]["substitution_comparison"],
+        fieldnames=[
+            "char1",
+            "char2",
+            "true",
+            "estimated",
+            "absolute_error",
+        ],
+    )
+
+
+def write_tsv(
+    output_path: Path,
+    rows: list[dict[str, Any]],
+    *,
+    fieldnames: list[str],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with output_path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=fieldnames,
+            delimiter="\t",
+            extrasaction="ignore",
+        )
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def as_float(value: Any) -> float | None:
