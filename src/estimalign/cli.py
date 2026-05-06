@@ -36,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "run-simulation-experiments":
-        run_simulation_experiments(
+        summary = run_simulation_experiments(
             output_dir=args.output_dir,
             dataset_index=args.dataset_index,
             split=args.split,
@@ -54,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
             make_plots=not args.no_plots,
             verbose=args.verbose,
         )
+        run_dir = summary["config"]["run_dir"]
+        log_path = summary["config"]["log_path"]
+        print("EstimAlign simulation run completed.")
+        print(f"Outputs written to: {run_dir}")
+        print(f"Run log: {log_path}")
         return 0
 
     parser.print_help()
