@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
+
+AlphaMode = Literal["fixed", "negative-median"]
 
 
 @dataclass(frozen=True)
@@ -14,9 +17,13 @@ class SimulationConfig:
     num_threads: int = 16
     stochastic_factor: float = 0.001
     simple_max_iter: int = 50
+    general_max_iter: int = 200
     step_max_iter: int = 10
     replicate_max_iter: int = 5
     replicate_count: int = 20
+    simple_step_length: float = 2e-5
+    general_step_length: float = 4e-5
+    alpha_mode: AlphaMode = "negative-median"
     make_plots: bool = True
     verbose: bool = False
 
