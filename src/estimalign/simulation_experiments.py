@@ -36,6 +36,7 @@ class SimulationConfig:
     replicate_max_iter: int = 5
     replicate_count: int = 20
     make_plots: bool = True
+    verbose: bool = False
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ def run_simulation_experiments(
     replicate_max_iter: int = 5,
     replicate_count: int = 20,
     make_plots: bool = True,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     config = SimulationConfig(
         output_dir=output_dir,
@@ -82,6 +84,7 @@ def run_simulation_experiments(
         replicate_max_iter=replicate_max_iter,
         replicate_count=replicate_count,
         make_plots=make_plots,
+        verbose=verbose,
     )
     return run_mirna_simulation_suite(config)
 
@@ -109,6 +112,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
         figures_dir=figures_dir,
         make_plots=config.make_plots,
+        verbose=config.verbose,
     )
 
     step_result = run_step_length_experiment(
@@ -121,6 +125,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
         figures_dir=figures_dir,
         make_plots=config.make_plots,
+        verbose=config.verbose,
     )
 
     replicate_result = run_replicate_experiment(
@@ -133,6 +138,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
         figures_dir=figures_dir,
         make_plots=config.make_plots,
+        verbose=config.verbose,
     )
 
     general_matrix_result = run_general_matrix_experiment(
@@ -143,6 +149,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
         figures_dir=figures_dir,
         make_plots=config.make_plots,
+        verbose=config.verbose,
     )
 
     summary = {
@@ -196,6 +203,7 @@ def run_simple_mirna_experiment(
     num_threads: int,
     figures_dir: Path,
     make_plots: bool,
+    verbose: bool,
 ) -> dict[str, Any]:
     truth = SimpleModelTruth()
 
@@ -225,7 +233,7 @@ def run_simple_mirna_experiment(
         aligner_mode="local",
         substitution_mode="simple",
         gap_mode="affine",
-        verbose=True,
+        verbose=verbose,
         max_iter=max_iter,
         stochastic_factor=stochastic_factor,
         num_threads=num_threads,
@@ -284,6 +292,7 @@ def run_step_length_experiment(
     num_threads: int,
     figures_dir: Path,
     make_plots: bool,
+    verbose: bool,
 ) -> dict[str, Any]:
     labels = sample_labels(logit_scores)
     step_lengths = np.linspace(0.000005, 0.00005, num=10)
@@ -300,7 +309,7 @@ def run_step_length_experiment(
             aligner_mode="local",
             substitution_mode="simple",
             gap_mode="affine",
-            verbose=False,
+            verbose=verbose,
             max_iter=max_iter,
             stochastic_factor=stochastic_factor,
             num_threads=num_threads,
@@ -348,6 +357,7 @@ def run_replicate_experiment(
     num_threads: int,
     figures_dir: Path,
     make_plots: bool,
+    verbose: bool,
 ) -> dict[str, Any]:
     const_step = create_constant_step(0.00001)
 
@@ -368,7 +378,7 @@ def run_replicate_experiment(
             aligner_mode="local",
             substitution_mode="simple",
             gap_mode="affine",
-            verbose=False,
+            verbose=verbose,
             max_iter=max_iter,
             stochastic_factor=stochastic_factor,
             num_threads=num_threads,
@@ -420,6 +430,7 @@ def run_general_matrix_experiment(
     num_threads: int,
     figures_dir: Path,
     make_plots: bool,
+    verbose: bool,
 ) -> dict[str, Any]:
     truth = GeneralMatrixTruth()
 
@@ -461,7 +472,7 @@ def run_general_matrix_experiment(
         substitution_mode="general",
         gap_mode="affine",
         stochastic_factor=stochastic_factor,
-        verbose=True,
+        verbose=verbose,
         max_iter=max_iter,
         num_threads=num_threads,
     )
@@ -704,7 +715,7 @@ def write_simulation_tsv_outputs(
     )
 
     write_tsv(
-        output_dir / "general_matrix_comparison.tsv",
+        output_dir / "general_substitution_matrix_comparison.tsv",
         summary["general_matrix_experiment"]["substitution_comparison"],
         fieldnames=[
             "char1",
