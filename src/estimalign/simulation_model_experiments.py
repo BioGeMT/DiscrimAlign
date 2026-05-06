@@ -9,7 +9,7 @@ from Bio.Seq import Seq
 from estimalign.estimalign import estimalign
 from estimalign.logit_link import logit_partial_scores
 from estimalign.optimization import create_constant_step
-from estimalign.simulation_config import GeneralMatrixTruth, SimpleModelTruth
+from estimalign.simulation_config import AlphaMode, GeneralMatrixTruth, SimpleModelTruth
 from estimalign.simulation_metrics import (
     compare_named_parameters,
     compare_substitution_matrices,
@@ -28,11 +28,53 @@ from estimalign.simulation_plots import (
 )
 
 
+def select_alpha(scores: np.ndarray, *, fixed_alpha: float, alpha_mode: AlphaMode) -> float:
+    if alpha_mode == "fixed":
+        return fixed_alpha
+    if alpha_mode == "negative-median":
+        return float(-np.median(scores))
+    raise ValueError(f"Unsupported alpha mode: {alpha_mode}")
+
+
+def build_simple_aligner(truth: SimpleModelTruth | None = None) -> PairwiseAligner:
+    truth = truth or SimpleModelTruth()
+    aligner = PairwiseAligner()
+    aligner.mode = "local"
+    aligner.open_gap_score = truth.gap_open
+    aligner.extend_gap_score = truth.gap_extend
+    aligner.match = truth.match
+    aligner.mismatch = truth.mismatch
+    return aligner
+
+
+def build_general_aligner(truth: GeneralMatrixTruth | None = None) -> tuple[PairwiseAligner, Any]:
+    truth = truth or GeneralMatrixTruth()
+    substitution = substitution_matrices.Array(
+        alphabet="ACTG",
+        data=np.array(
+            [
+                [1.0, -0.3, -1.0, -0.8],
+                [-0.6, 1.2, -0.3, -1.0],
+                [-1.2, -0.4, 1.0, -0.8],
+                [-0.4, -1.4, -0.9, 1.3],
+            ]
+        ),
+    )
+    aligner = PairwiseAligner()
+    aligner.mode = "local"
+    aligner.open_gap_score = truth.gap_open
+    aligner.extend_gap_score = truth.gap_extend
+    aligner.substitution_matrix = substitution
+    return aligner, substitution
+
+
 def run_simple_mirna_experiment(
     mirna_sequences: list[Seq],
     gene_sequences: list[Seq],
     *,
     max_iter: int,
+    step_length: float,
+    alpha_mode: AlphaMode,
     stochastic_factor: float,
     num_threads: int,
     figures_dir: Path,
@@ -40,16 +82,10 @@ def run_simple_mirna_experiment(
     verbose: bool,
 ) -> dict[str, Any]:
     truth = SimpleModelTruth()
-
-    aligner = PairwiseAligner()
-    aligner.mode = "local"
-    aligner.open_gap_score = truth.gap_open
-    aligner.extend_gap_score = truth.gap_extend
-    aligner.match = truth.match
-    aligner.mismatch = truth.mismatch
-
+    aligner = build_simple_aligner(truth)
     scores = score_sequence_pairs(aligner, mirna_sequences, gene_sequences)
-    logit_scores = logit_partial_scores(scores, truth.alpha)
+    alpha = select_alpha(scores, fixed_alpha=truth.alpha, alpha_mode=alpha_mode)
+    logit_scores = logit_partial_scores(scores, alpha)
     labels = sample_labels(logit_scores)
     true_loglik = compute_loglik(logit_scores, labels)
 
@@ -57,7 +93,7 @@ def run_simple_mirna_experiment(
         mirna_sequences,
         gene_sequences,
         labels,
-        stepfunction=create_constant_step(0.00001),
+        stepfunction=create_constant_step(step_length),
         aligner_mode="local",
         substitution_mode="simple",
         gap_mode="affine",
@@ -76,6 +112,8 @@ def run_simple_mirna_experiment(
 
     return {
         "truth": truth,
+        "alpha_mode": alpha_mode,
+        "simulation_alpha": alpha,
         "scores": scores,
         "logit_scores": logit_scores,
         "labels": labels,
@@ -99,9 +137,9 @@ def run_step_length_experiment(
 ) -> dict[str, Any]:
     labels = sample_labels(logit_scores)
     step_lengths = np.linspace(0.000005, 0.00005, num=10)
-
     runs = []
     raw_results = []
+
     for step_length in step_lengths:
         params = estimalign(
             mirna_sequences,
@@ -126,6 +164,68 @@ def run_step_length_experiment(
     return {"true_loglik": true_loglik, "runs": runs}
 
 
+def run_simple_replicate_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    logit_scores: np.ndarray,
+    replicate_count: int,
+    max_iter: int,
+    step_length: float,
+    stochastic_factor: float,
+    num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
+    verbose: bool,
+) -> dict[str, Any]:
+    return run_replicate_experiment(
+        mirna_sequences,
+        gene_sequences,
+        logit_scores=logit_scores,
+        replicate_count=replicate_count,
+        max_iter=max_iter,
+        step_length=step_length,
+        substitution_mode="simple",
+        figure_name="simple_replicate_loglikelihoods.png",
+        stochastic_factor=stochastic_factor,
+        num_threads=num_threads,
+        figures_dir=figures_dir,
+        make_plots=make_plots,
+        verbose=verbose,
+    )
+
+
+def run_general_replicate_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    logit_scores: np.ndarray,
+    replicate_count: int,
+    max_iter: int,
+    step_length: float,
+    stochastic_factor: float,
+    num_threads: int,
+    figures_dir: Path,
+    make_plots: bool,
+    verbose: bool,
+) -> dict[str, Any]:
+    return run_replicate_experiment(
+        mirna_sequences,
+        gene_sequences,
+        logit_scores=logit_scores,
+        replicate_count=replicate_count,
+        max_iter=max_iter,
+        step_length=step_length,
+        substitution_mode="general",
+        figure_name="general_replicate_loglikelihoods.png",
+        stochastic_factor=stochastic_factor,
+        num_threads=num_threads,
+        figures_dir=figures_dir,
+        make_plots=make_plots,
+        verbose=verbose,
+    )
+
+
 def run_replicate_experiment(
     mirna_sequences: list[Seq],
     gene_sequences: list[Seq],
@@ -133,6 +233,9 @@ def run_replicate_experiment(
     logit_scores: np.ndarray,
     replicate_count: int,
     max_iter: int,
+    step_length: float,
+    substitution_mode: str,
+    figure_name: str,
     stochastic_factor: float,
     num_threads: int,
     figures_dir: Path,
@@ -151,9 +254,9 @@ def run_replicate_experiment(
             mirna_sequences,
             gene_sequences,
             labels,
-            stepfunction=create_constant_step(0.00001),
+            stepfunction=create_constant_step(step_length),
             aligner_mode="local",
-            substitution_mode="simple",
+            substitution_mode=substitution_mode,
             gap_mode="affine",
             verbose=verbose,
             max_iter=max_iter,
@@ -168,7 +271,7 @@ def run_replicate_experiment(
             final_logliks.append(run_summary["final_loglik"])
 
     if make_plots:
-        plot_replicate_loglikelihoods(raw_results, true_logliks, max_iter=max_iter, output_path=figures_dir / "replicate_loglikelihoods.png")
+        plot_replicate_loglikelihoods(raw_results, true_logliks, max_iter=max_iter, output_path=figures_dir / figure_name)
 
     return {
         "replicate_count": replicate_count,
@@ -186,6 +289,8 @@ def run_general_matrix_experiment(
     gene_sequences: list[Seq],
     *,
     max_iter: int,
+    step_length: float,
+    alpha_mode: AlphaMode,
     stochastic_factor: float,
     num_threads: int,
     figures_dir: Path,
@@ -193,24 +298,10 @@ def run_general_matrix_experiment(
     verbose: bool,
 ) -> dict[str, Any]:
     truth = GeneralMatrixTruth()
-    true_substitution = substitution_matrices.Array(
-        alphabet="ACTG",
-        data=np.array([
-            [1.0, -0.3, -1.0, -0.8],
-            [-0.6, 1.2, -0.3, -1.0],
-            [-1.2, -0.4, 1.0, -0.8],
-            [-0.4, -1.4, -0.9, 1.3],
-        ]),
-    )
-
-    aligner = PairwiseAligner()
-    aligner.mode = "local"
-    aligner.open_gap_score = truth.gap_open
-    aligner.extend_gap_score = truth.gap_extend
-    aligner.substitution_matrix = true_substitution
-
+    aligner, true_substitution = build_general_aligner(truth)
     scores = score_sequence_pairs(aligner, mirna_sequences, gene_sequences)
-    logit_scores = logit_partial_scores(scores, truth.alpha)
+    alpha = select_alpha(scores, fixed_alpha=truth.alpha, alpha_mode=alpha_mode)
+    logit_scores = logit_partial_scores(scores, alpha)
     labels = sample_labels(logit_scores)
     true_loglik = compute_loglik(logit_scores, labels)
 
@@ -218,7 +309,7 @@ def run_general_matrix_experiment(
         mirna_sequences,
         gene_sequences,
         labels,
-        stepfunction=create_constant_step(0.00005),
+        stepfunction=create_constant_step(step_length),
         aligner_mode="local",
         substitution_mode="general",
         gap_mode="affine",
@@ -230,11 +321,7 @@ def run_general_matrix_experiment(
 
     substitution_comparison = compare_substitution_matrices(true_substitution, params["substitution_matrix"])
     parameter_comparison = compare_named_parameters(
-        truth={
-            "alpha": truth.alpha,
-            "open_gap_score": truth.gap_open,
-            "extend_gap_score": truth.gap_extend,
-        },
+        truth={"alpha": alpha, "open_gap_score": truth.gap_open, "extend_gap_score": truth.gap_extend},
         estimates=params,
     )
 
@@ -245,11 +332,10 @@ def run_general_matrix_experiment(
         plot_substitution_comparison(substitution_comparison, figures_dir / "general_substitution_comparison.png")
 
     return {
-        "truth": {
-            "gap_open": truth.gap_open,
-            "gap_extend": truth.gap_extend,
-            "alpha": truth.alpha,
-        },
+        "truth": {"gap_open": truth.gap_open, "gap_extend": truth.gap_extend, "fixed_alpha": truth.alpha},
+        "alpha_mode": alpha_mode,
+        "simulation_alpha": alpha,
+        "logit_scores": logit_scores,
         "true_loglik": true_loglik,
         **summarize_params(params),
         "parameter_comparison": parameter_comparison,
@@ -264,7 +350,7 @@ def summarize_simple_model(result: dict[str, Any]) -> dict[str, Any]:
     params = result["params"]
     parameter_comparison = compare_named_parameters(
         truth={
-            "alpha": truth.alpha,
+            "alpha": result["simulation_alpha"],
             "match_score": truth.match,
             "mismatch_score": truth.mismatch,
             "open_gap_score": truth.gap_open,
@@ -275,6 +361,8 @@ def summarize_simple_model(result: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "true_loglik": result["true_loglik"],
+        "alpha_mode": result["alpha_mode"],
+        "simulation_alpha": result["simulation_alpha"],
         **summarize_params(params),
         "parameter_comparison": parameter_comparison,
     }
