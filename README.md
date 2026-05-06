@@ -2,18 +2,19 @@
 
 EstimAlign is a Python toolkit for estimating sequence-alignment parameters from labeled pairs of biological sequences. It learns substitution weights and gap penalties from data and reports optimization summaries, parameter-recovery tables, terminal logs, and diagnostic figures.
 
-This repository now includes a `uv`-managed Python environment and a command-line workflow converted from the non-protein simulation sections of the original simulation notebook.
+This repository includes a `uv`-managed Python environment and a command-line workflow for the non-protein simulated-interaction validation experiments. The workflow uses miRBench RNA sequence pairs as realistic sequence inputs and simulates labels from known alignment parameters so that parameter recovery can be evaluated directly.
 
-The current converted workflow focuses on miRNA simulation experiments as a validation example. EstimAlign itself is not limited to miRNA data.
+EstimAlign itself is not limited to miRNA data. The miRNA/RNA simulation workflow is the included validation workflow for this package.
 
-## What the converted workflow does
+## What the simulation workflow does
 
-The command-line workflow runs these notebook-derived simulation experiments:
+The command-line workflow runs:
 
-1. Simple alignment model with local alignment, match/mismatch scores, and affine gap penalties.
-2. Step-length experiment for comparing optimization behavior across constant step sizes.
-3. Replicate experiment for assessing run-to-run variability.
-4. General substitution matrix experiment with affine gap penalties.
+1. A simple alignment model with local alignment, match/mismatch scores, and affine gap penalties.
+2. A step-length experiment for comparing optimization behavior across constant step sizes.
+3. A simple-model replicate experiment for assessing run-to-run variability.
+4. A general asymmetric substitution matrix experiment with affine gap penalties.
+5. A general/asymmetric replicate experiment matching the robustness check used in the manuscript simulations.
 
 The workflow writes:
 
@@ -88,7 +89,7 @@ uv run estimalign --help
 Use this first to confirm that the environment and workflow are working.
 
 ```bash
-uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots
+uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots
 ```
 
 The same command works in Windows PowerShell.
@@ -98,7 +99,7 @@ The same command works in Windows PowerShell.
 Run the smoke test without `--no-plots`:
 
 ```bash
-uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2
+uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2
 ```
 
 ### Full default run
@@ -107,14 +108,14 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 uv run estimalign run-simulation-experiments
 ```
 
-The full default run may take longer because it uses more records, more iterations, and plot generation.
+The full default run may take longer because it uses more records, more iterations, both replicate experiments, and plot generation.
 
 ### Detailed optimizer logs
 
 Runs write terminal output to `outputs/simulation_experiments/run.log`. Runs are quiet unless you add `--verbose`:
 
 ```bash
-uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots --verbose
+uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 2 --general-max-iter 2 --step-max-iter 2 --replicate-max-iter 2 --replicate-count 2 --no-plots --verbose
 ```
 
 ## Command options
@@ -126,13 +127,19 @@ uv run estimalign run-simulation-experiments --max-records 50 --simple-max-iter 
 --random-seed            Random seed for reproducibility.
 --max-records            Optional row limit for quick tests.
 --num-threads            Number of EstimAlign worker threads.
---simple-max-iter        Iterations for simple and general simulation experiments.
---step-max-iter          Iterations for the step-length experiment.
---replicate-max-iter     Iterations for each replicate experiment.
---replicate-count        Number of replicate runs.
+--simple-max-iter        Iterations for the simple simulation experiment. Default: 50.
+--general-max-iter       Iterations for the general matrix experiment. Default: 200.
+--step-max-iter          Iterations for the step-length experiment. Default: 10.
+--replicate-max-iter     Iterations for each replicate experiment. Default: 5.
+--replicate-count        Number of replicate runs. Default: 20.
+--simple-step-length     Constant step length for the simple model. Default: 2e-5.
+--general-step-length    Constant step length for the general matrix model. Default: 4e-5.
+--alpha-mode             Label-simulation alpha mode: fixed or negative-median. Default: negative-median.
 --no-plots               Disable PNG figure generation.
 --verbose                Print detailed optimizer progress to the run log.
 ```
+
+`--alpha-mode negative-median` sets the simulation intercept to the negative median alignment score, which produces a roughly balanced simulated label distribution. `--alpha-mode fixed` uses the historical fixed notebook values for alpha.
 
 ## Outputs
 
@@ -179,7 +186,8 @@ These reports are useful for checking whether EstimAlign recovers the expected a
 
 ```text
 outputs/simulation_experiments/step_length_results.tsv
-outputs/simulation_experiments/replicate_results.tsv
+outputs/simulation_experiments/simple_replicate_results.tsv
+outputs/simulation_experiments/general_replicate_results.tsv
 outputs/simulation_experiments/general_substitution_matrix_comparison.tsv
 ```
 
@@ -198,7 +206,9 @@ The `true` column is the parameter value used to simulate labels. The `estimated
 
 Use `step_length_results.tsv` to compare optimizer step sizes. Each row is one constant step length. Useful columns are `final_loglik`, `max_loglik`, and the estimated alignment parameters.
 
-Use `replicate_results.tsv` to inspect run-to-run variability. Each row is one replicate with newly sampled labels from the same simulated probability model.
+Use `simple_replicate_results.tsv` to inspect run-to-run variability for the simple match/mismatch scoring model.
+
+Use `general_replicate_results.tsv` to inspect run-to-run variability for the general asymmetric substitution matrix model.
 
 Use `general_substitution_matrix_comparison.tsv` for the general substitution matrix experiment. Each row is one matrix entry. The `char1` and `char2` columns identify the substitution, while `true`, `estimated`, and `absolute_error` compare the simulated and fitted substitution score.
 
@@ -224,7 +234,8 @@ simple_logit_scores_vs_labels.png
 simple_optimization_trajectory.png
 step_length_loglikelihoods.png
 step_length_loglikelihoods_zoom.png
-replicate_loglikelihoods.png
+simple_replicate_loglikelihoods.png
+general_replicate_loglikelihoods.png
 general_scores_hist.png
 general_logit_scores_hist.png
 general_optimization_trajectory.png
@@ -269,7 +280,7 @@ The project is packaged through `pyproject.toml` and locked with `uv.lock`.
 
 ## Current scope
 
-The current command-line workflow covers the non-protein simulation/validation sections of the original simulation notebook.
+The current command-line workflow covers the non-protein simulated-interaction validation workflow. The real miRNA-target prediction case study is maintained separately and is not part of this repository workflow.
 
 The protein experiments are not included in the main command-line workflow yet. They should be converted separately with explicit, configurable input paths before being added to the package.
 
