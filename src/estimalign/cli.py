@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--simple-max-iter",
         type=int,
         default=50,
-        help="Iterations for simple and general miRNA experiments.",
+        help="Iterations for simple and general simulation experiments.",
     )
     run_parser.add_argument(
         "--step-max-iter",
@@ -81,6 +81,11 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Disable figure generation.",
     )
+    run_parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print detailed optimizer progress during simulation runs.",
+    )
 
     return parser
 
@@ -102,6 +107,7 @@ def main(argv: list[str] | None = None) -> int:
             replicate_max_iter=args.replicate_max_iter,
             replicate_count=args.replicate_count,
             make_plots=not args.no_plots,
+            verbose=args.verbose,
         )
         return 0
 
