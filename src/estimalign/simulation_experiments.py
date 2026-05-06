@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -64,17 +65,38 @@ def run_simulation_experiments(
 
 
 def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
-    config.output_dir.mkdir(parents=True, exist_ok=True)
-    log_path = config.output_dir / "run.log"
+    output_root = config.output_dir
+    run_dir = create_run_directory(output_root)
+    run_config = replace(config, output_dir=run_dir)
+    log_path = run_dir / "run.log"
 
     with log_path.open("w", encoding="utf-8") as log_handle:
         with redirect_stdout(log_handle), redirect_stderr(log_handle):
-            return _run_mirna_simulation_suite(config, log_path=log_path)
+            return _run_mirna_simulation_suite(
+                run_config,
+                output_root=output_root,
+                log_path=log_path,
+            )
+
+
+def create_run_directory(output_root: Path) -> Path:
+    output_root.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    candidate = output_root / f"run_{timestamp}"
+
+    suffix = 1
+    while candidate.exists():
+        candidate = output_root / f"run_{timestamp}_{suffix:02d}"
+        suffix += 1
+
+    candidate.mkdir(parents=True)
+    return candidate
 
 
 def _run_mirna_simulation_suite(
     config: SimulationConfig,
     *,
+    output_root: Path,
     log_path: Path,
 ) -> dict[str, Any]:
     rd.seed(config.random_seed)
@@ -160,7 +182,8 @@ def _run_mirna_simulation_suite(
     summary = {
         "config": {
             **asdict(config),
-            "output_dir": str(config.output_dir),
+            "output_root": str(output_root),
+            "run_dir": str(config.output_dir),
             "log_path": str(log_path),
         },
         "dataset": {
