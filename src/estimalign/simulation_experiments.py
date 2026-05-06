@@ -93,25 +93,51 @@ def create_run_directory(output_root: Path) -> Path:
     return candidate
 
 
+def log_step(message: str) -> None:
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{now}] {message}", flush=True)
+
+
 def _run_mirna_simulation_suite(
     config: SimulationConfig,
     *,
     output_root: Path,
     log_path: Path,
 ) -> dict[str, Any]:
+    log_step("Starting EstimAlign simulation run")
+    log_step(f"Output root: {output_root}")
+    log_step(f"Run directory: {config.output_dir}")
+    log_step(f"Run log: {log_path}")
+    log_step(
+        "Configuration: "
+        f"dataset_index={config.dataset_index}, split={config.split}, "
+        f"max_records={config.max_records}, alpha_mode={config.alpha_mode}, "
+        f"simple_max_iter={config.simple_max_iter}, general_max_iter={config.general_max_iter}, "
+        f"step_max_iter={config.step_max_iter}, replicate_max_iter={config.replicate_max_iter}, "
+        f"replicate_count={config.replicate_count}, make_plots={config.make_plots}, "
+        f"verbose={config.verbose}"
+    )
+
     rd.seed(config.random_seed)
     np.random.seed(config.random_seed)
+    log_step(f"Random seed set to {config.random_seed}")
 
     figures_dir = config.output_dir / "figures"
     if config.make_plots:
         figures_dir.mkdir(parents=True, exist_ok=True)
+        log_step(f"Figure output directory: {figures_dir}")
+    else:
+        log_step("Figure generation disabled")
 
+    log_step("Loading miRBench sequence pairs")
     mirna_sequences, gene_sequences = load_mirbench_sequences(
         dataset_index=config.dataset_index,
         split=config.split,
         max_records=config.max_records,
     )
+    log_step(f"Loaded {len(mirna_sequences)} sequence pairs")
 
+    log_step("Running simple alignment model experiment")
     simple_result = run_simple_mirna_experiment(
         mirna_sequences,
         gene_sequences,
@@ -124,7 +150,9 @@ def _run_mirna_simulation_suite(
         make_plots=config.make_plots,
         verbose=config.verbose,
     )
+    log_step("Completed simple alignment model experiment")
 
+    log_step("Running step-length experiment")
     step_result = run_step_length_experiment(
         mirna_sequences,
         gene_sequences,
@@ -137,7 +165,9 @@ def _run_mirna_simulation_suite(
         make_plots=config.make_plots,
         verbose=config.verbose,
     )
+    log_step("Completed step-length experiment")
 
+    log_step("Running simple-model replicate experiment")
     simple_replicate_result = run_simple_replicate_experiment(
         mirna_sequences,
         gene_sequences,
@@ -151,7 +181,9 @@ def _run_mirna_simulation_suite(
         make_plots=config.make_plots,
         verbose=config.verbose,
     )
+    log_step("Completed simple-model replicate experiment")
 
+    log_step("Running general asymmetric substitution matrix experiment")
     general_matrix_result = run_general_matrix_experiment(
         mirna_sequences,
         gene_sequences,
@@ -164,7 +196,9 @@ def _run_mirna_simulation_suite(
         make_plots=config.make_plots,
         verbose=config.verbose,
     )
+    log_step("Completed general asymmetric substitution matrix experiment")
 
+    log_step("Running general/asymmetric replicate experiment")
     general_replicate_result = run_general_replicate_experiment(
         mirna_sequences,
         gene_sequences,
@@ -178,6 +212,7 @@ def _run_mirna_simulation_suite(
         make_plots=config.make_plots,
         verbose=config.verbose,
     )
+    log_step("Completed general/asymmetric replicate experiment")
 
     summary = {
         "config": {
@@ -198,5 +233,8 @@ def _run_mirna_simulation_suite(
         "general_replicate_experiment": general_replicate_result,
     }
 
+    log_step("Writing simulation outputs")
     write_simulation_outputs(config.output_dir, summary)
+    log_step("Completed EstimAlign simulation run")
+    log_step(f"Output files written to: {config.output_dir}")
     return summary
