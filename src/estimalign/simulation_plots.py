@@ -10,6 +10,33 @@ matplotlib.use("Agg")
 import numpy as np
 from matplotlib import pyplot as plt
 
+FIGURE_DPI = 300
+
+plt.rcParams.update(
+    {
+        "figure.dpi": FIGURE_DPI,
+        "savefig.dpi": FIGURE_DPI,
+        "font.size": 10,
+        "axes.titlesize": 11,
+        "axes.labelsize": 10,
+        "legend.fontsize": 8,
+        "xtick.labelsize": 9,
+        "ytick.labelsize": 9,
+        "axes.spines.top": False,
+        "axes.spines.right": False,
+        "axes.grid": True,
+        "grid.alpha": 0.25,
+        "grid.linewidth": 0.6,
+    }
+)
+
+
+def save_figure(output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    plt.tight_layout()
+    plt.savefig(output_path, bbox_inches="tight")
+    plt.close()
+
 
 def plot_histogram(
     values: np.ndarray,
@@ -17,14 +44,12 @@ def plot_histogram(
     *,
     title: str,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    plt.figure()
-    plt.hist(values, bins=100)
+    plt.figure(figsize=(5.8, 3.8))
+    plt.hist(values, bins=60, edgecolor="black", linewidth=0.3)
+    plt.xlabel("Value")
+    plt.ylabel("Frequency")
     plt.title(title)
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    save_figure(output_path)
 
 
 def plot_label_scatter(
@@ -35,16 +60,13 @@ def plot_label_scatter(
     title: str,
     xlabel: str,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    plt.figure()
-    plt.plot(x_values, labels, ".", alpha=0.1)
+    plt.figure(figsize=(5.8, 3.8))
+    plt.plot(x_values, labels, ".", alpha=0.2, markersize=3)
     plt.xlabel(xlabel)
-    plt.ylabel("Label")
+    plt.ylabel("Simulated label")
+    plt.yticks([0, 1], ["0", "1"])
     plt.title(title)
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    save_figure(output_path)
 
 
 def plot_optimization_trajectories(
@@ -54,39 +76,45 @@ def plot_optimization_trajectories(
     true_loglik: float,
     output_path: Path,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(2, 2, figsize=(8.2, 6.2))
 
-    plt.figure(figsize=(8, 6))
+    axes[0, 0].plot(np.arange(max_iter), params["subgradient_l2_trajectory"], linewidth=1.5)
+    axes[0, 0].axhline(0, linestyle="--", linewidth=1.0)
+    axes[0, 0].set_title("Subgradient norm")
+    axes[0, 0].set_xlabel("Iteration")
+    axes[0, 0].set_ylabel("L2 norm")
 
-    plt.subplot(221)
-    plt.plot(np.arange(max_iter), params["subgradient_l2_trajectory"])
-    plt.plot([0, max_iter], [0, 0], "--")
-    plt.title("Subgradient L2 norm trajectory")
+    axes[0, 1].plot(np.arange(max_iter + 1), params["loglik_trajectory"], linewidth=1.5)
+    axes[0, 1].axhline(true_loglik, linestyle="--", linewidth=1.0, label="Simulation truth")
+    axes[0, 1].set_title("Log-likelihood")
+    axes[0, 1].set_xlabel("Iteration")
+    axes[0, 1].set_ylabel("Log-likelihood")
+    axes[0, 1].legend(frameon=False)
 
-    plt.subplot(222)
-    plt.plot(np.arange(max_iter + 1), params["loglik_trajectory"])
-    plt.plot([0, max_iter + 1], [true_loglik, true_loglik], "--")
-    plt.title("LogLikelihood trajectory")
-
-    plt.subplot(223)
-    plt.plot(
-        np.arange(max_iter // 2, max_iter),
-        params["subgradient_l2_trajectory"][max_iter // 2 :],
+    start = max_iter // 2
+    axes[1, 0].plot(
+        np.arange(start, max_iter),
+        params["subgradient_l2_trajectory"][start:],
+        linewidth=1.5,
     )
-    plt.plot([max_iter // 2, max_iter], [0, 0], "--")
-    plt.title("Subgradient L2 norm trajectory")
+    axes[1, 0].axhline(0, linestyle="--", linewidth=1.0)
+    axes[1, 0].set_title("Subgradient norm, second half")
+    axes[1, 0].set_xlabel("Iteration")
+    axes[1, 0].set_ylabel("L2 norm")
 
-    plt.subplot(224)
-    plt.plot(
-        np.arange(max_iter // 2, max_iter + 1),
-        params["loglik_trajectory"][max_iter // 2 :],
+    axes[1, 1].plot(
+        np.arange(start, max_iter + 1),
+        params["loglik_trajectory"][start:],
+        linewidth=1.5,
     )
-    plt.plot([max_iter // 2, max_iter + 1], [true_loglik, true_loglik], "--")
-    plt.title("LogLikelihood trajectory")
+    axes[1, 1].axhline(true_loglik, linestyle="--", linewidth=1.0, label="Simulation truth")
+    axes[1, 1].set_title("Log-likelihood, second half")
+    axes[1, 1].set_xlabel("Iteration")
+    axes[1, 1].set_ylabel("Log-likelihood")
+    axes[1, 1].legend(frameon=False)
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    fig.suptitle("Optimization trajectory", y=1.02)
+    save_figure(output_path)
 
 
 def plot_step_length_loglikelihoods(
@@ -98,25 +126,26 @@ def plot_step_length_loglikelihoods(
     output_path: Path,
     xlim: tuple[int, int] | None = None,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    plt.figure()
-    for params in results:
+    plt.figure(figsize=(6.4, 4.2))
+    for params, step_length in zip(results, step_lengths):
         plt.plot(
             np.arange(max_iter + 1),
             params["loglik_trajectory"],
-            alpha=0.5,
+            alpha=0.8,
+            linewidth=1.2,
+            label=f"{step_length:.1e}",
         )
 
-    plt.plot([0, max_iter], [true_loglik, true_loglik], "--")
-    plt.legend([str(value) for value in step_lengths])
+    plt.axhline(true_loglik, linestyle="--", linewidth=1.0, label="Simulation truth")
+    plt.xlabel("Iteration")
+    plt.ylabel("Log-likelihood")
+    plt.title("Step-length comparison")
+    plt.legend(title="Step length", frameon=False, ncol=2)
 
     if xlim is not None:
         plt.xlim(*xlim)
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    save_figure(output_path)
 
 
 def plot_replicate_loglikelihoods(
@@ -126,51 +155,52 @@ def plot_replicate_loglikelihoods(
     max_iter: int,
     output_path: Path,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(1, 2, figsize=(8.6, 3.2))
 
-    plt.figure(figsize=(7.5, 2.1))
-
-    plt.subplot(121)
     for params in results:
-        plt.plot(
+        axes[0].plot(
             np.arange(max_iter + 1),
             params["loglik_trajectory"],
-            alpha=0.2,
+            alpha=0.35,
+            linewidth=1.2,
         )
-    plt.title("Replicate loglikelihoods")
+    axes[0].set_title("Replicate log-likelihoods")
+    axes[0].set_xlabel("Iteration")
+    axes[0].set_ylabel("Log-likelihood")
 
-    plt.subplot(122)
-    plt.plot([0, max_iter], [0, 0], "--")
+    axes[1].axhline(0, linestyle="--", linewidth=1.0)
     for params, true_loglik in zip(results, true_logliks):
-        plt.plot(
+        axes[1].plot(
             np.arange(max_iter + 1),
             true_loglik - params["loglik_trajectory"],
-            alpha=0.2,
+            alpha=0.35,
+            linewidth=1.2,
         )
-    plt.title("True minus fitted loglikelihood")
+    axes[1].set_title("Truth minus fitted log-likelihood")
+    axes[1].set_xlabel("Iteration")
+    axes[1].set_ylabel("Difference")
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    fig.suptitle("Replicate optimization behavior", y=1.04)
+    save_figure(output_path)
 
 
 def plot_substitution_comparison(
     comparison: dict[str, Any],
     output_path: Path,
 ) -> None:
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
     rows = comparison["rows"]
+    true_values = np.array([row["true"] for row in rows])
+    estimated_values = np.array([row["estimated"] for row in rows])
 
-    plt.figure()
-    plt.plot(
-        [row["true"] for row in rows],
-        [row["estimated"] for row in rows],
-        ".",
-    )
+    lower = float(min(true_values.min(), estimated_values.min()))
+    upper = float(max(true_values.max(), estimated_values.max()))
+
+    plt.figure(figsize=(4.8, 4.6))
+    plt.plot(true_values, estimated_values, ".", markersize=6, alpha=0.8)
+    plt.plot([lower, upper], [lower, upper], linestyle="--", linewidth=1.0, label="Identity")
     plt.xlabel("True substitution score")
     plt.ylabel("Estimated substitution score")
-    plt.title("General matrix substitution comparison")
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=160)
-    plt.close()
+    plt.title("Substitution matrix recovery")
+    plt.legend(frameon=False)
+    plt.axis("equal")
+    save_figure(output_path)
