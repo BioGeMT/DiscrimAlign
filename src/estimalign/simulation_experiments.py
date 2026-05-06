@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from Bio.Align import PairwiseAligner
+from Bio.Align import PairwiseAligner, substitution_matrices
 from Bio.Seq import Seq
 from miRBench.dataset import get_dataset_df, list_datasets
 from numpy import random as rd
@@ -39,6 +39,13 @@ class SimpleModelTruth:
     gap_open: float = -1.2
     gap_extend: float = -0.1
     alpha: float = -9.0
+
+
+@dataclass(frozen=True)
+class GeneralMatrixTruth:
+    gap_open: float = -1.2
+    gap_extend: float = -0.1
+    alpha: float = -12.0
 
 
 def run_simulation_experiments(
@@ -112,6 +119,14 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         num_threads=config.num_threads,
     )
 
+    general_matrix_result = run_general_matrix_experiment(
+        mirna_sequences,
+        gene_sequences,
+        max_iter=config.simple_max_iter,
+        stochastic_factor=0.01,
+        num_threads=config.num_threads,
+    )
+
     summary = {
         "config": {
             **asdict(config),
@@ -125,6 +140,7 @@ def run_mirna_simulation_suite(config: SimulationConfig) -> dict[str, Any]:
         "simple_model": summarize_simple_model(simple_result),
         "step_length_experiment": step_result,
         "replicate_experiment": replicate_result,
+        "general_matrix_experiment": general_matrix_result,
     }
 
     write_json(config.output_dir / "simulation_summary.json", summary)
@@ -306,6 +322,116 @@ def run_replicate_experiment(
         "true_logliks": true_logliks,
         "final_logliks": final_logliks,
         "runs": runs,
+    }
+
+
+def run_general_matrix_experiment(
+    mirna_sequences: list[Seq],
+    gene_sequences: list[Seq],
+    *,
+    max_iter: int,
+    stochastic_factor: float,
+    num_threads: int,
+) -> dict[str, Any]:
+    truth = GeneralMatrixTruth()
+
+    true_substitution = substitution_matrices.Array(
+        alphabet="ACTG",
+        data=np.array(
+            [
+                [1.0, -0.3, -1.0, -0.8],
+                [-0.6, 1.2, -0.3, -1.0],
+                [-1.2, -0.4, 1.0, -0.8],
+                [-0.4, -1.4, -0.9, 1.3],
+            ]
+        ),
+    )
+
+    aligner = PairwiseAligner()
+    aligner.mode = "local"
+    aligner.open_gap_score = truth.gap_open
+    aligner.extend_gap_score = truth.gap_extend
+    aligner.substitution_matrix = true_substitution
+
+    scores = score_sequence_pairs(
+        aligner,
+        mirna_sequences,
+        gene_sequences,
+    )
+
+    logit_scores = logit_partial_scores(scores, truth.alpha)
+    labels = sample_labels(logit_scores)
+    true_loglik = compute_loglik(logit_scores, labels)
+
+    const_step = create_constant_step(0.00005)
+    params = estimalign(
+        mirna_sequences,
+        gene_sequences,
+        labels,
+        stepfunction=const_step,
+        aligner_mode="local",
+        substitution_mode="general",
+        gap_mode="affine",
+        stochastic_factor=stochastic_factor,
+        verbose=True,
+        max_iter=max_iter,
+        num_threads=num_threads,
+    )
+
+    substitution_comparison = compare_substitution_matrices(
+        true_substitution,
+        params["substitution_matrix"],
+    )
+
+    return {
+        "truth": {
+            "gap_open": truth.gap_open,
+            "gap_extend": truth.gap_extend,
+            "alpha": truth.alpha,
+        },
+        "true_loglik": true_loglik,
+        **summarize_params(params),
+        "substitution_correlation": substitution_comparison["correlation"],
+        "substitution_mean_absolute_error": substitution_comparison[
+            "mean_absolute_error"
+        ],
+        "substitution_comparison": substitution_comparison["rows"],
+    }
+
+
+def compare_substitution_matrices(
+    true_matrix: Any,
+    estimated_matrix: Any,
+) -> dict[str, Any]:
+    rows = []
+    true_values = []
+    estimated_values = []
+
+    for char1 in true_matrix.alphabet:
+        for char2 in true_matrix.alphabet:
+            true_value = float(true_matrix[char1, char2])
+            estimated_value = float(estimated_matrix[char1, char2])
+            rows.append(
+                {
+                    "char1": char1,
+                    "char2": char2,
+                    "true": true_value,
+                    "estimated": estimated_value,
+                    "absolute_error": abs(true_value - estimated_value),
+                }
+            )
+            true_values.append(true_value)
+            estimated_values.append(estimated_value)
+
+    correlation = float(np.corrcoef(true_values, estimated_values)[0, 1])
+    mean_absolute_error = float(
+        np.mean(np.abs(np.array(true_values) - np.array(estimated_values)))
+    )
+
+    return {
+        "rows": rows,
+        "correlation": correlation,
+        "mean_absolute_error": mean_absolute_error,
     }
 
 
