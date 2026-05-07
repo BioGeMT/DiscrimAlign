@@ -1,24 +1,22 @@
 # miRNA case study
 
-This folder contains the miRNA case-study workflow for EstimAlign. The scripts use the same `uv` project environment as the main repository and obtain datasets through the `miRBench` package.
-
-Dataset files are downloaded or reused from cache when the scripts are run. Raw miRBench datasets are not stored as primary repository artifacts.
+This directory contains the miRNA case-study workflow for EstimAlign. The scripts use the same `uv` project environment as the main repository and obtain datasets through the `miRBench` package.
 
 ## Files
 
-- `import_mirbench_datasets.py`: resolves EstimAlign dataset aliases, obtains the corresponding datasets through `miRBench`, and writes or reuses local files under `data/raw/`.
+- `import_mirbench_datasets.py`: resolves EstimAlign dataset aliases, obtains the corresponding datasets through `miRBench`, and writes the tabular files under `data/raw/`.
 - `case_study_mirna.py`: runs an EstimAlign grid on paired train/test datasets or on a single dataset split.
-- `../run_mirna_auprc_table.py`: contains the miRNA runs used to reproduce the corresponding manuscript results.
+- `run_mirna_auprc_table.py`: contains the miRNA runs used to reproduce the corresponding manuscript results.
 
 ## Environment
 
-From the repository root:
+Create the project environment from the repository root:
 
 ```bash
 uv sync
 ```
 
-This installs the dependencies used by the EstimAlign implementation, the simulation notebook, and the miRNA case-study workflow.
+The same environment is used for the EstimAlign implementation, simulation notebook, and miRNA case-study workflow.
 
 ## Datasets
 
@@ -28,19 +26,19 @@ List dataset aliases:
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
 ```
 
-Download or reuse the default Hejret group:
+Prepare the default Hejret group:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Download the datasets used for miRNA table calculations:
+Prepare the datasets used for miRNA table calculations:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --groups table
 ```
 
-Download specific aliases:
+Prepare specific aliases:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --groups "" --datasets hejret_train,manakov_leftout,klimentova_test
@@ -68,18 +66,18 @@ uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_l
 
 ## Manuscript-result runs
 
-The repository-level script
+The script
 
 ```text
-run_mirna_auprc_table.py
+case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 contains the runs used to reproduce the miRNA results included in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
 
-Run it from the repository root with:
+Run the manuscript-result workflow from the repository root:
 
 ```bash
-uv run python run_mirna_auprc_table.py
+uv run python case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 Outputs are written to:
