@@ -80,7 +80,7 @@ uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-
 Run a single split directly:
 
 ```bash
-uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_leftout --selection-objective final_loglik --num-threads 1
+uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_leftout --limit-configs 10 --num-threads 1
 ```
 
 Pipeline summaries are written to:
