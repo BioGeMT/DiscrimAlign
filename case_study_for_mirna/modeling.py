@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import time
+import warnings
 
 import numpy as np
 
 from src.estimalign import estimalign
 from src.optimization import create_constant_step, create_powerstep
+
+SKLEARN_PENALTY_WARNING = "'penalty' was deprecated in version 1.8"
 
 
 def make_stepfunction(name: str, scale: float):
@@ -18,18 +21,25 @@ def make_stepfunction(name: str, scale: float):
 
 def fit_configuration(fit_inputs, config: dict):
     start_time = time.perf_counter()
-    result = estimalign(
-        seqlistA=fit_inputs[0],
-        seqlistB=fit_inputs[1],
-        labels=fit_inputs[2],
-        aligner_mode=config["aligner_mode"],
-        gap_mode=config["gap_mode"],
-        substitution_mode=config["substitution_mode"],
-        stepfunction=make_stepfunction(config["stepfunction"], float(config["step_scale"])),
-        max_iter=int(config["max_iter"]),
-        num_threads=int(config["num_threads"]),
-        verbose=False,
-    )
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=SKLEARN_PENALTY_WARNING,
+            category=FutureWarning,
+            module="sklearn.linear_model._logistic",
+        )
+        result = estimalign(
+            seqlistA=fit_inputs[0],
+            seqlistB=fit_inputs[1],
+            labels=fit_inputs[2],
+            aligner_mode=config["aligner_mode"],
+            gap_mode=config["gap_mode"],
+            substitution_mode=config["substitution_mode"],
+            stepfunction=make_stepfunction(config["stepfunction"], float(config["step_scale"])),
+            max_iter=int(config["max_iter"]),
+            num_threads=int(config["num_threads"]),
+            verbose=False,
+        )
     return result, time.perf_counter() - start_time
 
 
