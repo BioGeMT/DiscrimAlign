@@ -1,43 +1,41 @@
 # EstimAlign
 
-EstimAlign estimates substitution weights and gap penalties from pairs of labelled biological sequences. The main project deliverables are the core implementation in `src/` and the simulation experiments notebook.
+EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The main components of the project are the implementation in `src/` and the simulation experiments notebook.
 
-The repository is organized as a reproducible research codebase for the manuscript. The miRNA case study is included as optional review material: it is provided so reviewers or readers can download the relevant miRBench datasets and rerun selected checks, but it is not the main product of the repository.
+The optional miRNA case study is included only as supplementary manuscript-review material. It is not required for the core method, the simulation experiments, or the main use of EstimAlign.
 
-## Main project contents
+## Repository contents
 
-- `src/`: core EstimAlign implementation and optimization scripts.
-- `Simulation experiments.ipynb`: simulation experiments used to evaluate the method.
-- `pyproject.toml`: reproducible `uv` environment for running the core project.
-- `case_study_for_mirna/`: optional manuscript-review case study using datasets obtained through the `miRBench` package.
+```text
+src/                         Core EstimAlign implementation
+Simulation experiments.ipynb  Simulation experiments for the manuscript
+pyproject.toml                Reproducible uv environment
+case_study_for_mirna/         Optional miRNA review workflow
+```
 
-## Environment setup
+## Installation
 
-The project uses [`uv`](https://docs.astral.sh/uv/) for reproducible environment management.
+The project uses [`uv`](https://docs.astral.sh/uv/) to create a reproducible Python environment.
 
-For the core EstimAlign code and simulations:
+Install the core environment:
 
 ```bash
 uv sync
 ```
 
-Then run Python commands through the environment:
+This is sufficient for the main `src/` scripts and simulation experiments.
 
-```bash
-uv run python --version
-```
-
-To include the optional miRNA manuscript-review case study dependencies:
+To run the optional miRNA case-study workflow, install the extra dependencies:
 
 ```bash
 uv sync --extra case-study
 ```
 
-This installs `miRBench` only when the case-study workflow is needed.
+The `case-study` extra installs `miRBench`, which is used only to download or reuse cached miRNA benchmark datasets for manuscript-review checks.
 
-## Core usage
+## Core EstimAlign usage
 
-The primary entry point is `src.estimalign.estimalign`.
+The main function is `estimalign` from `src.estimalign`.
 
 ```python
 from src.estimalign import estimalign
@@ -60,54 +58,58 @@ print(result["final_loglik"])
 print(result["alpha"])
 ```
 
-The returned dictionary contains the learned alignment parameters, fitted aligner, intercept, optimization trajectory, and final objective value.
+The returned object contains the fitted aligner, learned parameters, intercept, final log-likelihood, and optimization trajectories.
 
 ## Simulation experiments
 
-The simulation notebook is part of the main project and should be treated as the primary reproducibility material alongside the `src/` scripts.
+The simulation notebook is the main reproducibility material for the manuscript experiments:
 
-Start Jupyter from the `uv` environment and open the notebook:
+```text
+Simulation experiments.ipynb
+```
+
+Open it with a notebook interface configured to use the `uv` environment. For example:
 
 ```bash
 uv run jupyter lab "Simulation experiments.ipynb"
 ```
 
-If Jupyter is not already installed in your environment, install it in the active `uv` environment or run the notebook through your preferred editor configured to use `.venv`.
+If Jupyter is not installed in the environment, install it in `.venv` or open the notebook from an editor that can use the project environment.
 
-## Optional miRNA case study for manuscript review
+## Optional miRNA case study
 
-The folder `case_study_for_mirna/` is optional. It exists to support manuscript review and result checking for the miRNA case study. It downloads or reuses cached miRBench datasets only when the user explicitly runs the case-study scripts.
+The folder `case_study_for_mirna/` is provided so reviewers or readers can rerun selected miRNA case-study checks. The scripts obtain datasets through the `miRBench` package and reuse cached files when available.
 
-Install the optional dependency first:
+Install the optional dependency group before running these scripts:
 
 ```bash
 uv sync --extra case-study
 ```
 
-List the available dataset aliases:
+List available dataset aliases:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
 ```
 
-Download the default cached Hejret train/test data into `data/raw/`:
+Download or reuse the default Hejret data:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Run a small smoke test of the manuscript-review pipeline:
+Run a small smoke test:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
 ```
 
-The case-study outputs are written under:
+Case-study outputs are written to:
 
 ```text
 results/case_study_for_mirna/
 ```
 
-## Notes on data
+## Data policy
 
-Raw miRBench datasets are not the main repository artifact. The optional case-study scripts request the datasets through the `miRBench` package and then use cached or downloaded files when available.
+Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` only when the optional case-study scripts are run.
