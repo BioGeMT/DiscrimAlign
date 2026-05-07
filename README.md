@@ -9,6 +9,7 @@ src/                         Core EstimAlign implementation
 Simulation experiments.ipynb  Simulation experiments for the manuscript
 pyproject.toml                Reproducible project environment managed by uv
 case_study_for_mirna/         miRNA case-study workflow
+run_mirna_auprc_table.sh      miRNA manuscript-result runs
 ```
 
 ## Requirements
@@ -131,6 +132,22 @@ Run a two-configuration example on the Hejret data:
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
 ```
+
+The bash script
+
+```text
+run_mirna_auprc_table.sh
+```
+
+contains the miRNA runs used to reproduce the corresponding results reported in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
+
+On macOS or Linux, run:
+
+```bash
+bash run_mirna_auprc_table.sh
+```
+
+On Windows, run the script through Git Bash or WSL.
 
 Case-study outputs are written to:
 
