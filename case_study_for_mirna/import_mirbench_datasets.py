@@ -100,7 +100,7 @@ def download_named_dataset(
     output_dir: str | Path = "data/raw",
     overwrite: bool = False,
 ) -> Path:
-    """Download/cache a miRBench dataset and copy it into this repo's data/raw layout."""
+    """Fetch an optional review dataset through miRBench and reuse cache when possible."""
     alias = normalize_aliases([alias])[0]
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -130,7 +130,12 @@ def download_datasets(
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Download miRBench datasets via the miRBench package.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Optional manuscript-review helper for downloading or reusing cached "
+            "miRBench datasets. This is not needed for the main src/ code or simulations."
+        )
+    )
     parser.add_argument("--datasets", default="", help="Comma-separated aliases such as hejret_train,manakov_leftout")
     parser.add_argument("--groups", default="hejret", help=f"Comma-separated groups. Supported: {', '.join(sorted(DATASET_GROUPS))}")
     parser.add_argument("--output-dir", default="data/raw")
@@ -144,7 +149,7 @@ if __name__ == "__main__":
     if args.list:
         print("miRBench datasets:")
         print(available_datasets())
-        print("\nEstimAlign aliases:")
+        print("\nEstimAlign manuscript-review aliases:")
         for alias, target in sorted(DATASET_ALIASES.items()):
             print(f"  {alias}: {target[0]} / {target[1]}")
         raise SystemExit(0)
@@ -153,4 +158,4 @@ if __name__ == "__main__":
     requested.extend(expand_dataset_groups(_parse_csv(args.groups)))
     requested.extend(_parse_csv(args.datasets))
     for path in download_datasets(requested, output_dir=args.output_dir, overwrite=args.overwrite):
-        print(f"Downloaded: {path}")
+        print(f"Available locally: {path}")
