@@ -15,9 +15,9 @@ case_study_for_mirna/         miRNA case-study workflow
 
 - Python `>=3.10,<3.13`
 - `uv` for environment management
-- Jupyter or VS Code notebook support for running `Simulation experiments.ipynb`
+- JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
-The repository provides one main project environment through `uv`. The optional `case-study` dependency group adds the package needed by the miRNA case-study scripts to obtain datasets through `miRBench`. The mathematical implementation in `src/`, the simulation notebook, and the case-study scripts are otherwise intended to run in the same project environment.
+The repository provides one main project environment through `uv`. This environment includes the scientific Python dependencies, JupyterLab, and an IPython kernel for the simulation notebook. The optional `case-study` dependency group additionally installs the package needed by the miRNA case-study scripts to obtain datasets through `miRBench`.
 
 ## Installing `uv`
 
@@ -53,7 +53,7 @@ From the repository root, install the standard project dependencies:
 uv sync
 ```
 
-This creates a local `.venv/` environment for the main implementation and simulation experiments.
+This creates a local `.venv/` environment for the main implementation, the simulation experiments, and JupyterLab.
 
 For the full reproducible research environment, including the miRNA case-study dataset interface, use:
 
@@ -69,26 +69,12 @@ To verify that the environment is available:
 uv run python --version
 ```
 
-## Installing Jupyter
+## Running the simulation notebook
 
-Jupyter is needed to run the simulation notebook through JupyterLab. It is not installed by `uv sync` unless it is added explicitly.
-
-To install JupyterLab into the project environment:
-
-```bash
-uv add jupyterlab ipykernel
-```
-
-Then open the notebook with:
+JupyterLab and `ipykernel` are part of the standard `uv` environment. After running `uv sync`, open the simulation notebook with:
 
 ```bash
 uv run jupyter lab "Simulation experiments.ipynb"
-```
-
-Alternatively, to use JupyterLab temporarily without modifying `pyproject.toml`:
-
-```bash
-uv run --with jupyterlab jupyter lab "Simulation experiments.ipynb"
 ```
 
 ### Using VS Code
@@ -98,14 +84,6 @@ If using VS Code, install the Python and Jupyter extensions. Then:
 1. Run `uv sync` or `uv sync --extra case-study` from the repository root.
 2. Open `Simulation experiments.ipynb`.
 3. Select the kernel associated with the local `.venv/` environment.
-
-If the `.venv` kernel is not listed, run:
-
-```bash
-uv add ipykernel
-```
-
-Then reopen the notebook or refresh the kernel list in VS Code.
 
 ## Core EstimAlign usage
 
@@ -143,14 +121,6 @@ Simulation experiments.ipynb
 ```
 
 contains the simulation experiments associated with the manuscript. It should be treated as the primary reproducibility material alongside the implementation in `src/`.
-
-After installing Jupyter, run:
-
-```bash
-uv run jupyter lab "Simulation experiments.ipynb"
-```
-
-or open the notebook in VS Code using the `.venv/` kernel.
 
 ## miRNA case study
 
