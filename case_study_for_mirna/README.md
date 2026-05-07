@@ -8,6 +8,7 @@ Dataset files are downloaded or reused from cache when the scripts are run. Raw 
 
 - `import_mirbench_datasets.py`: resolves EstimAlign dataset aliases, obtains the corresponding datasets through `miRBench`, and writes or reuses local files under `data/raw/`.
 - `case_study_mirna.py`: runs an EstimAlign grid on paired train/test datasets or on a single dataset split.
+- `../run_mirna_auprc_table.sh`: contains the miRNA runs used to reproduce the corresponding manuscript results.
 
 ## Environment
 
@@ -64,6 +65,24 @@ Single-split Manakov run:
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_leftout --limit-configs 10 --num-threads 1
 ```
+
+## Manuscript-result runs
+
+The repository-level script
+
+```text
+run_mirna_auprc_table.sh
+```
+
+contains the runs used to reproduce the miRNA results included in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
+
+On macOS or Linux, run from the repository root:
+
+```bash
+bash run_mirna_auprc_table.sh
+```
+
+On Windows, run the script through Git Bash or WSL.
 
 Outputs are written to:
 
