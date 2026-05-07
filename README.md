@@ -17,7 +17,7 @@ case_study_for_mirna/         miRNA case-study workflow
 - `uv` for environment management
 - JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
-The repository provides one main project environment through `uv`. This environment includes the scientific Python dependencies, JupyterLab, and an IPython kernel for the simulation notebook. The optional `case-study` dependency group additionally installs the package needed by the miRNA case-study scripts to obtain datasets through `miRBench`.
+The repository uses a single project environment managed by `uv`. This environment includes the scientific Python dependencies, JupyterLab, an IPython kernel for notebooks, and `miRBench` for the miRNA case-study dataset interface.
 
 ## Installing `uv`
 
@@ -47,26 +47,24 @@ uv --version
 
 ## Creating the project environment
 
-From the repository root, install the standard project dependencies:
+From the repository root, install the project dependencies:
 
 ```bash
 uv sync
 ```
 
-This creates a local `.venv/` environment for the main implementation, the simulation experiments, and JupyterLab.
-
-For the full reproducible research environment, including the miRNA case-study dataset interface, use:
-
-```bash
-uv sync --extra case-study
-```
-
-The difference is that `--extra case-study` also installs `miRBench`, which is used by `case_study_for_mirna/` to download or reuse cached miRNA benchmark datasets.
+This creates a local `.venv/` environment for the main implementation, the simulation experiments, JupyterLab, and the miRNA case-study workflow.
 
 To verify that the environment is available:
 
 ```bash
 uv run python --version
+```
+
+To verify that `miRBench` is available in the same environment:
+
+```bash
+uv run python -c "import miRBench; print('miRBench available')"
 ```
 
 ## Running the simulation notebook
@@ -81,7 +79,7 @@ uv run jupyter lab "Simulation experiments.ipynb"
 
 If using VS Code, install the Python and Jupyter extensions. Then:
 
-1. Run `uv sync` or `uv sync --extra case-study` from the repository root.
+1. Run `uv sync` from the repository root.
 2. Open `Simulation experiments.ipynb`.
 3. Select the kernel associated with the local `.venv/` environment.
 
@@ -131,12 +129,6 @@ case_study_for_mirna/
 ```
 
 contains scripts for reproducing selected miRNA case-study calculations. This workflow uses the `miRBench` package to obtain datasets and reuses cached files when available.
-
-Install the project environment with the case-study dependency group:
-
-```bash
-uv sync --extra case-study
-```
 
 List the available dataset aliases:
 
