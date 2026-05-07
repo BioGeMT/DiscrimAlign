@@ -1,27 +1,27 @@
-# Optional miRNA case study
+# miRNA case study
 
-This folder contains optional manuscript-review material for EstimAlign. The main project is the core method implementation in `src/` and the simulation experiments notebook. The scripts here are provided only so reviewers or readers can check selected miRNA case-study results when needed.
+This folder contains the miRNA case-study workflow for EstimAlign. The scripts use the same `uv` project environment as the main repository and obtain datasets through the `miRBench` package.
 
-The case study uses the `miRBench` package to obtain datasets. Dataset files are downloaded or reused from cache only when these scripts are run; they are not required for the main EstimAlign code or simulations.
+Dataset files are downloaded or reused from cache when the scripts are run. Raw miRBench datasets are not stored as primary repository artifacts.
 
 ## Files
 
-- `import_mirbench_datasets.py`: resolves EstimAlign-friendly dataset aliases, asks `miRBench` for the corresponding dataset, and writes/reuses local files under `data/raw/`.
-- `case_study_mirna.py`: runs a compact EstimAlign grid on paired train/test datasets or a direct single-split check.
+- `import_mirbench_datasets.py`: resolves EstimAlign dataset aliases, obtains the corresponding datasets through `miRBench`, and writes or reuses local files under `data/raw/`.
+- `case_study_mirna.py`: runs an EstimAlign grid on paired train/test datasets or on a single dataset split.
 
-## Install optional dependencies
+## Environment
 
 From the repository root:
 
 ```bash
-uv sync --extra case-study
+uv sync
 ```
 
-The base command `uv sync` is enough for the main `src/` code and simulations. The extra is needed only for the miRNA review workflow.
+This installs the dependencies used by the EstimAlign implementation, the simulation notebook, and the miRNA case-study workflow.
 
-## Dataset download and cache
+## Datasets
 
-List dataset aliases and the datasets exposed by `miRBench`:
+List dataset aliases:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
@@ -33,7 +33,7 @@ Download or reuse the default Hejret group:
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Download the datasets used for manuscript table checks:
+Download the datasets used for miRNA table calculations:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --groups table
@@ -47,22 +47,26 @@ uv run python case_study_for_mirna/import_mirbench_datasets.py --groups "" --dat
 
 ## Pipeline examples
 
-Small smoke test for checking that the optional workflow runs:
+Two-configuration Hejret example:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
 ```
 
-A fuller default Hejret review run:
+Default Hejret run:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --num-threads 1
 ```
 
-Direct single-split check:
+Single-split Manakov run:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_leftout --limit-configs 10 --num-threads 1
 ```
 
-Outputs are written to `results/case_study_for_mirna/` by default.
+Outputs are written to:
+
+```text
+results/case_study_for_mirna/
+```
