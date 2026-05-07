@@ -1,37 +1,105 @@
 # EstimAlign
 
-EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The main components of the project are the implementation in `src/` and the simulation experiments notebook.
+EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The central components of the repository are the mathematical and computational implementation in `src/` and the simulation experiments notebook.
 
-The optional miRNA case study is included only as supplementary manuscript-review material. It is not required for the core method, the simulation experiments, or the main use of EstimAlign.
+The miRNA case study is included as optional supplementary material for manuscript review. It is provided so that selected case-study results can be reproduced if needed, but it is not required for using the main EstimAlign method or for running the simulation experiments.
 
-## Repository contents
+## Repository structure
 
 ```text
 src/                         Core EstimAlign implementation
 Simulation experiments.ipynb  Simulation experiments for the manuscript
-pyproject.toml                Reproducible uv environment
-case_study_for_mirna/         Optional miRNA review workflow
+pyproject.toml                Reproducible project environment managed by uv
+case_study_for_mirna/         Optional miRNA case-study workflow
 ```
 
-## Installation
+## Requirements
 
-The project uses [`uv`](https://docs.astral.sh/uv/) to create a reproducible Python environment.
+- Python `>=3.10,<3.13`
+- `uv` for environment management
+- Jupyter or VS Code notebook support for running `Simulation experiments.ipynb`
 
-Install the core environment:
+The core project environment does not require `miRBench`. The `miRBench` package is installed only when the optional case-study dependency group is requested.
+
+## Installing `uv`
+
+### Windows PowerShell
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Restart the terminal, then verify the installation:
+
+```powershell
+uv --version
+```
+
+### macOS / Linux
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+Restart the terminal, then verify the installation:
+
+```bash
+uv --version
+```
+
+## Creating the project environment
+
+From the repository root, install the core dependencies:
 
 ```bash
 uv sync
 ```
 
-This is sufficient for the main `src/` scripts and simulation experiments.
+This creates a local `.venv/` environment and installs the dependencies needed for the main `src/` scripts and simulation experiments.
 
-To run the optional miRNA case-study workflow, install the extra dependencies:
+To verify that the environment is available:
 
 ```bash
-uv sync --extra case-study
+uv run python --version
 ```
 
-The `case-study` extra installs `miRBench`, which is used only to download or reuse cached miRNA benchmark datasets for manuscript-review checks.
+## Installing Jupyter
+
+Jupyter is needed only if you want to run the simulation notebook through JupyterLab. It is not part of the minimal core dependency set.
+
+To install JupyterLab into the project environment:
+
+```bash
+uv add jupyterlab ipykernel
+```
+
+Then open the notebook with:
+
+```bash
+uv run jupyter lab "Simulation experiments.ipynb"
+```
+
+Alternatively, to use JupyterLab temporarily without modifying `pyproject.toml`:
+
+```bash
+uv run --with jupyterlab jupyter lab "Simulation experiments.ipynb"
+```
+
+### Using VS Code
+
+If using VS Code, install the Python and Jupyter extensions. Then:
+
+1. Run `uv sync` from the repository root.
+2. Open `Simulation experiments.ipynb`.
+3. Select the kernel associated with the local `.venv/` environment.
+
+If the `.venv` kernel is not listed, run:
+
+```bash
+uv add ipykernel
+```
+
+Then reopen the notebook or refresh the kernel list in VS Code.
 
 ## Core EstimAlign usage
 
@@ -58,35 +126,43 @@ print(result["final_loglik"])
 print(result["alpha"])
 ```
 
-The returned object contains the fitted aligner, learned parameters, intercept, final log-likelihood, and optimization trajectories.
+The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
 
 ## Simulation experiments
 
-The simulation notebook is the main reproducibility material for the manuscript experiments:
+The notebook
 
 ```text
 Simulation experiments.ipynb
 ```
 
-Open it with a notebook interface configured to use the `uv` environment. For example:
+contains the simulation experiments associated with the manuscript. It should be treated as the primary reproducibility material alongside the implementation in `src/`.
+
+After installing Jupyter, run:
 
 ```bash
 uv run jupyter lab "Simulation experiments.ipynb"
 ```
 
-If Jupyter is not installed in the environment, install it in `.venv` or open the notebook from an editor that can use the project environment.
+or open the notebook in VS Code using the `.venv/` kernel.
 
 ## Optional miRNA case study
 
-The folder `case_study_for_mirna/` is provided so reviewers or readers can rerun selected miRNA case-study checks. The scripts obtain datasets through the `miRBench` package and reuse cached files when available.
+The folder
 
-Install the optional dependency group before running these scripts:
+```text
+case_study_for_mirna/
+```
+
+contains an optional workflow for reproducing selected miRNA case-study calculations. This workflow uses the `miRBench` package to obtain datasets and reuses cached files when available.
+
+Install the optional dependency group with:
 
 ```bash
 uv sync --extra case-study
 ```
 
-List available dataset aliases:
+List the available dataset aliases:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
@@ -98,7 +174,7 @@ Download or reuse the default Hejret data:
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Run a small smoke test:
+Run a small verification example with two grid configurations:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
