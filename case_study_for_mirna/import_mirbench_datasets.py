@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import shutil
 from pathlib import Path
 
 import pandas as pd
@@ -95,26 +94,36 @@ def get_dataset_cache_path(alias: str) -> Path:
     return Path(get_dataset_path(dataset_name, split=split))
 
 
+def is_valid_gzip_tsv(path: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        pd.read_csv(path, sep="\t", compression="gzip", nrows=1)
+    except Exception:
+        return False
+    return True
+
+
+def write_dataset_gzip(alias: str, out_path: Path) -> None:
+    df = get_dataset_dataframe(alias)
+    df.to_csv(out_path, sep="\t", index=False, compression="gzip")
+
+
 def download_named_dataset(
     alias: str,
     output_dir: str | Path = "data/raw",
     overwrite: bool = False,
 ) -> Path:
-    """Fetch an optional review dataset through miRBench and reuse cache when possible."""
+    """Fetch a miRBench dataset and store it locally as a valid gzipped TSV file."""
     alias = normalize_aliases([alias])[0]
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     out_path = output_dir / output_filename(alias)
 
-    if out_path.exists() and not overwrite:
+    if out_path.exists() and not overwrite and is_valid_gzip_tsv(out_path):
         return out_path
 
-    source_path = get_dataset_cache_path(alias)
-    if source_path.exists():
-        shutil.copyfile(source_path, out_path)
-    else:
-        df = get_dataset_dataframe(alias)
-        df.to_csv(out_path, sep="\t", index=False, compression="gzip")
+    write_dataset_gzip(alias, out_path)
     return out_path
 
 
@@ -131,10 +140,7 @@ def download_datasets(
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Optional manuscript-review helper for downloading or reusing cached "
-            "miRBench datasets. This is not needed for the main src/ code or simulations."
-        )
+        description="Download or reuse miRBench datasets for the EstimAlign miRNA case study."
     )
     parser.add_argument("--datasets", default="", help="Comma-separated aliases such as hejret_train,manakov_leftout")
     parser.add_argument("--groups", default="hejret", help=f"Comma-separated groups. Supported: {', '.join(sorted(DATASET_GROUPS))}")
@@ -149,7 +155,7 @@ if __name__ == "__main__":
     if args.list:
         print("miRBench datasets:")
         print(available_datasets())
-        print("\nEstimAlign manuscript-review aliases:")
+        print("\nEstimAlign miRNA case-study aliases:")
         for alias, target in sorted(DATASET_ALIASES.items()):
             print(f"  {alias}: {target[0]} / {target[1]}")
         raise SystemExit(0)
