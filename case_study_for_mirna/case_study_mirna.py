@@ -103,9 +103,7 @@ def sigmoid(values):
 
 
 def score_pairs(seqlist_a, seqlist_b, aligner, alpha):
-    from src.optimization import get_first_alignment
-
-    scores = [get_first_alignment(a, b, aligner).score for a, b in zip(seqlist_a, seqlist_b)]
+    scores = [next(aligner.align(seq_a, seq_b)).score for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
     return sigmoid(np.asarray(scores, dtype=float) + float(alpha))
 
 
