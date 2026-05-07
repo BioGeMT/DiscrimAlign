@@ -1,16 +1,17 @@
 # EstimAlign
 
-EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The central components of the repository are the mathematical and computational implementation in `src/` and the simulation experiments notebook.
+EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, and a miRNA case-study workflow.
 
 ## Repository structure
 
 ```text
-src/                         Core EstimAlign implementation
-Simulation experiments.ipynb  Simulation experiments for the manuscript
-pyproject.toml                Reproducible project environment managed by uv
-case_study_for_mirna/         miRNA case-study workflow
-run_mirna_auprc_table.py      miRNA manuscript-result runs
+src/                          Core EstimAlign implementation
+Simulation experiments.ipynb   Simulation experiments for the manuscript
+pyproject.toml                 Project environment managed by uv
+case_study_for_mirna/          miRNA case-study workflow and manuscript-result runs
 ```
+
+The miRNA case-study workflow writes its datasets to `data/raw/` and its outputs to `results/case_study_for_mirna/`.
 
 ## Requirements
 
@@ -48,17 +49,15 @@ uv --version
 
 ## Project environment
 
-From the repository root, create the project environment with:
+Create the project environment from the repository root:
 
 ```bash
 uv sync
 ```
 
-This creates a local `.venv/` environment for the EstimAlign implementation, simulation experiments, JupyterLab, and miRNA case-study workflow.
+All project commands are run through this environment with `uv run`.
 
-All project commands below are run through this environment with `uv run`.
-
-## Simulation notebook
+## Simulation experiments
 
 The notebook
 
@@ -107,13 +106,13 @@ The returned object contains the fitted aligner, learned alignment parameters, i
 
 ## miRNA case study
 
-The folder
+The miRNA workflow is contained in:
 
 ```text
 case_study_for_mirna/
 ```
 
-contains scripts for reproducing selected miRNA case-study calculations. This workflow uses the `miRBench` package to obtain datasets and reuses cached files when available.
+Dataset access is handled through the `miRBench` package. The case-study scripts write the corresponding tabular datasets under `data/raw/`.
 
 List the available dataset aliases:
 
@@ -121,7 +120,7 @@ List the available dataset aliases:
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
 ```
 
-Download or reuse the default Hejret data:
+Prepare the default Hejret datasets:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py
@@ -133,18 +132,18 @@ Run a two-configuration example on the Hejret data:
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
 ```
 
-The Python script
+The script
 
 ```text
-run_mirna_auprc_table.py
+case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 contains the miRNA runs used to reproduce the corresponding results reported in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
 
-Run it from the repository root with:
+Run the manuscript-result workflow from the repository root:
 
 ```bash
-uv run python run_mirna_auprc_table.py
+uv run python case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 Case-study outputs are written to:
@@ -152,7 +151,3 @@ Case-study outputs are written to:
 ```text
 results/case_study_for_mirna/
 ```
-
-## Data policy
-
-Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` when the case-study scripts are run.
