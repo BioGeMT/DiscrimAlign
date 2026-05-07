@@ -27,7 +27,7 @@ The repository uses a single project environment managed by `uv`. This environme
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Restart the terminal, then verify the installation:
+Restart the terminal and confirm that `uv` is available:
 
 ```powershell
 uv --version
@@ -39,49 +39,43 @@ uv --version
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-Restart the terminal, then verify the installation:
+Restart the terminal and confirm that `uv` is available:
 
 ```bash
 uv --version
 ```
 
-## Creating the project environment
+## Project environment
 
-From the repository root, install the project dependencies:
+From the repository root, create the project environment with:
 
 ```bash
 uv sync
 ```
 
-This creates a local `.venv/` environment for the main implementation, the simulation experiments, JupyterLab, and the miRNA case-study workflow.
+This creates a local `.venv/` environment for the EstimAlign implementation, simulation experiments, JupyterLab, and miRNA case-study workflow.
 
-To verify that the environment is available:
+All project commands below are run through this environment with `uv run`.
 
-```bash
-uv run python --version
+## Simulation notebook
+
+The notebook
+
+```text
+Simulation experiments.ipynb
 ```
 
-To verify that `miRBench` is available in the same environment:
+contains the simulation experiments associated with the manuscript and is the primary reproducibility material alongside the implementation in `src/`.
 
-```bash
-uv run python -c "import miRBench; print('miRBench available')"
-```
-
-## Running the simulation notebook
-
-JupyterLab and `ipykernel` are part of the standard `uv` environment. After running `uv sync`, open the simulation notebook with:
+Open the notebook with JupyterLab:
 
 ```bash
 uv run jupyter lab "Simulation experiments.ipynb"
 ```
 
-### Using VS Code
+### VS Code
 
-If using VS Code, install the Python and Jupyter extensions. Then:
-
-1. Run `uv sync` from the repository root.
-2. Open `Simulation experiments.ipynb`.
-3. Select the kernel associated with the local `.venv/` environment.
+With the Python and Jupyter extensions installed, open `Simulation experiments.ipynb` and select the kernel associated with the local `.venv/` environment.
 
 ## Core EstimAlign usage
 
@@ -110,16 +104,6 @@ print(result["alpha"])
 
 The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
 
-## Simulation experiments
-
-The notebook
-
-```text
-Simulation experiments.ipynb
-```
-
-contains the simulation experiments associated with the manuscript. It should be treated as the primary reproducibility material alongside the implementation in `src/`.
-
 ## miRNA case study
 
 The folder
@@ -142,7 +126,7 @@ Download or reuse the default Hejret data:
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Run a small verification example with two grid configurations:
+Run a two-configuration example on the Hejret data:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
@@ -156,4 +140,4 @@ results/case_study_for_mirna/
 
 ## Data policy
 
-Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` only when the case-study scripts are run.
+Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` when the case-study scripts are run.
