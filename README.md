@@ -1,97 +1,113 @@
 # EstimAlign
 
-Finding substitution weights and gap penalties from pairs of labeled biological sequences.
+EstimAlign estimates substitution weights and gap penalties from pairs of labelled biological sequences. The main project deliverables are the core implementation in `src/` and the simulation experiments notebook.
 
-## Branch purpose: `uv_case_study`
+The repository is organized as a reproducible research codebase for the manuscript. The miRNA case study is included as optional review material: it is provided so reviewers or readers can download the relevant miRBench datasets and rerun selected checks, but it is not the main product of the repository.
 
-This branch keeps the `src/` implementation, simulation notebook, and baseline README from `devel`, and adds a reproducible `uv` environment for the miRNA case study.
+## Main project contents
 
-The new case-study code lives in:
+- `src/`: core EstimAlign implementation and optimization scripts.
+- `Simulation experiments.ipynb`: simulation experiments used to evaluate the method.
+- `pyproject.toml`: reproducible `uv` environment for running the core project.
+- `case_study_for_mirna/`: optional manuscript-review case study using datasets obtained through the `miRBench` package.
 
-```text
-case_study_for_mirna/
-```
+## Environment setup
 
-It uses the `miRBench` Python package to download and load the miRNA benchmark datasets instead of storing raw datasets in the repository.
+The project uses [`uv`](https://docs.astral.sh/uv/) for reproducible environment management.
 
-## Environment setup with `uv`
-
-Install `uv` if needed, then create the environment from the repository root:
+For the core EstimAlign code and simulations:
 
 ```bash
 uv sync
 ```
 
-Run commands inside the environment with:
+Then run Python commands through the environment:
 
 ```bash
 uv run python --version
 ```
 
-## Download miRBench datasets
+To include the optional miRNA manuscript-review case study dependencies:
 
-List supported datasets and aliases:
+```bash
+uv sync --extra case-study
+```
+
+This installs `miRBench` only when the case-study workflow is needed.
+
+## Core usage
+
+The primary entry point is `src.estimalign.estimalign`.
+
+```python
+from src.estimalign import estimalign
+
+seqlistA = ["AUGCUA", "CUGA"]
+seqlistB = ["AUGGUA", "CUGU"]
+labels = [1, 0]
+
+result = estimalign(
+    seqlistA=seqlistA,
+    seqlistB=seqlistB,
+    labels=labels,
+    aligner_mode="local",
+    gap_mode="affine",
+    substitution_mode="symmetric",
+    num_threads=1,
+)
+
+print(result["final_loglik"])
+print(result["alpha"])
+```
+
+The returned dictionary contains the learned alignment parameters, fitted aligner, intercept, optimization trajectory, and final objective value.
+
+## Simulation experiments
+
+The simulation notebook is part of the main project and should be treated as the primary reproducibility material alongside the `src/` scripts.
+
+Start Jupyter from the `uv` environment and open the notebook:
+
+```bash
+uv run jupyter lab "Simulation experiments.ipynb"
+```
+
+If Jupyter is not already installed in your environment, install it in the active `uv` environment or run the notebook through your preferred editor configured to use `.venv`.
+
+## Optional miRNA case study for manuscript review
+
+The folder `case_study_for_mirna/` is optional. It exists to support manuscript review and result checking for the miRNA case study. It downloads or reuses cached miRBench datasets only when the user explicitly runs the case-study scripts.
+
+Install the optional dependency first:
+
+```bash
+uv sync --extra case-study
+```
+
+List the available dataset aliases:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py --list
 ```
 
-Download the default Hejret train/test datasets into `data/raw/`:
+Download the default cached Hejret train/test data into `data/raw/`:
 
 ```bash
 uv run python case_study_for_mirna/import_mirbench_datasets.py
 ```
 
-Download the datasets used for the miRNA table:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --groups table
-```
-
-Download specific aliases:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --groups "" --datasets hejret_train,manakov_leftout,klimentova_test
-```
-
-Supported aliases are:
-
-- `hejret_train`
-- `hejret_test`
-- `manakov_train`
-- `manakov_test`
-- `manakov_leftout`
-- `klimentova_test`
-
-## Run the miRNA case-study pipeline
-
-Run a compact default grid on the Hejret train/test split:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --num-threads 1
-```
-
-Run only a small smoke-test grid:
+Run a small smoke test of the manuscript-review pipeline:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
 ```
 
-Run a single split directly:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py --dataset-split manakov_leftout --limit-configs 10 --num-threads 1
-```
-
-Pipeline summaries are written to:
+The case-study outputs are written under:
 
 ```text
 results/case_study_for_mirna/
 ```
 
-## Repository layout
+## Notes on data
 
-- `src/`: core EstimAlign scripts from `devel`
-- `Simulation experiments.ipynb`: notebook from `devel`
-- `case_study_for_mirna/`: miRNA case-study workflow using `miRBench`
-- `pyproject.toml`: `uv` project configuration
+Raw miRBench datasets are not the main repository artifact. The optional case-study scripts request the datasets through the `miRBench` package and then use cached or downloaded files when available.
