@@ -10,16 +10,12 @@ dependencies = [
     "joblib>=1.4.2",
     "jupyterlab>=4.2.0",
     "matplotlib>=3.9.2",
+    "mirbench",
     "numpy>=1.26.4",
     "pandas>=2.2.2",
     "scikit-learn>=1.4.2",
     "scipy>=1.12.0",
     "threadpoolctl>=3.6.0",
-]
-
-[project.optional-dependencies]
-case-study = [
-    "mirbench",
 ]
 
 [tool.uv]
