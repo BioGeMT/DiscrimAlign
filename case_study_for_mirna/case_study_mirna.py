@@ -49,18 +49,34 @@ def _parse_int_csv(raw: str) -> list[int]:
     return [int(value) for value in _parse_csv(raw)]
 
 
+def _parse_dataset_splits(raw: str | None) -> list[str]:
+    if not raw:
+        return []
+    aliases = _parse_csv(raw)
+    invalid = [alias for alias in aliases if alias not in SUPPORTED_DATASET_SPLITS]
+    if invalid:
+        valid = ", ".join(SUPPORTED_DATASET_SPLITS)
+        raise ValueError(f"Invalid dataset split aliases: {invalid}. Valid aliases: {valid}")
+    return aliases
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
-        description=(
-            "Optional manuscript-review miRNA workflow. The main EstimAlign project "
-            "is the src/ implementation and simulation notebook; this script is only "
-            "for rerunning selected case-study checks with datasets obtained through miRBench."
-        )
+        description="Run EstimAlign miRNA case-study calculations with datasets obtained through miRBench."
     )
     parser.add_argument("--dataset", default="hejret", choices=sorted(PAIRED_DATASET_SPLITS))
     parser.add_argument("--dataset-split", default=None, choices=SUPPORTED_DATASET_SPLITS)
+    parser.add_argument(
+        "--eval-splits",
+        default=None,
+        help=(
+            "Comma-separated dataset split aliases evaluated after training once on "
+            "<dataset>_train, for example: hejret_test,manakov_test,manakov_leftout."
+        ),
+    )
     parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--results-dir", default="results/case_study_for_mirna")
+    parser.add_argument("--run-tag", default="")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
     parser.add_argument("--split-seed", type=int, default=42)
     parser.add_argument("--aligner-modes", default="local,global")
@@ -128,17 +144,25 @@ def main():
     data_dir = Path(args.data_dir)
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
+    eval_splits = _parse_dataset_splits(args.eval_splits)
+
+    if args.dataset_split and eval_splits:
+        raise ValueError("--dataset-split and --eval-splits are mutually exclusive.")
 
     if args.dataset_split:
         train_df = load_dataset(args.dataset_split, data_dir)
         fit_df = train_df
         val_df = train_df
-        test_frames = {args.dataset_split: train_df}
+        eval_frames = {args.dataset_split: train_df}
         dataset_label = args.dataset_split
     else:
-        train_alias, test_alias = PAIRED_DATASET_SPLITS[args.dataset]
+        train_alias, default_eval_alias = PAIRED_DATASET_SPLITS[args.dataset]
         train_df = load_dataset(train_alias, data_dir)
-        test_frames = {test_alias: load_dataset(test_alias, data_dir)}
+        selected_eval_splits = eval_splits or [default_eval_alias]
+        eval_frames = {
+            alias: load_dataset(alias, data_dir)
+            for alias in selected_eval_splits
+        }
         fit_df, val_df = train_test_split(
             train_df,
             test_size=args.validation_fraction,
@@ -149,7 +173,7 @@ def main():
 
     fit_inputs = prepare_inputs(fit_df)
     val_inputs = prepare_inputs(val_df)
-    test_inputs = {alias: prepare_inputs(frame) for alias, frame in test_frames.items()}
+    eval_inputs = {alias: prepare_inputs(frame) for alias, frame in eval_frames.items()}
 
     grid = list(
         product(
@@ -193,15 +217,16 @@ def main():
             val_prob = score_pairs(val_inputs[0], val_inputs[1], result["aligner"], result["alpha"])
             row = {**config, "status": "ok", "final_loglik": result.get("final_loglik", np.nan)}
             row.update({f"validation_{k}": v for k, v in evaluate(val_inputs[2], val_prob).items()})
-            for alias, inputs in test_inputs.items():
-                test_prob = score_pairs(inputs[0], inputs[1], result["aligner"], result["alpha"])
-                row.update({f"{alias}_{k}": v for k, v in evaluate(inputs[2], test_prob).items()})
-        except Exception as exc:  # keep long review grids running and report failures in CSV
+            for alias, inputs in eval_inputs.items():
+                eval_prob = score_pairs(inputs[0], inputs[1], result["aligner"], result["alpha"])
+                row.update({f"{alias}_{k}": v for k, v in evaluate(inputs[2], eval_prob).items()})
+        except Exception as exc:
             row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
         rows.append(row)
         print(f"Completed {idx}/{len(grid)}: {row['status']}", flush=True)
 
-    summary_path = results_dir / f"{dataset_label}_summary.csv"
+    tag = f"_{args.run_tag}" if args.run_tag else ""
+    summary_path = results_dir / f"{dataset_label}{tag}_summary.csv"
     columns = sorted({key for row in rows for key in row})
     with summary_path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(handle, fieldnames=columns)
