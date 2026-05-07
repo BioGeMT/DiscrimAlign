@@ -51,7 +51,11 @@ def _parse_int_csv(raw: str) -> list[int]:
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Run a compact EstimAlign miRNA case study with datasets downloaded through miRBench."
+        description=(
+            "Optional manuscript-review miRNA workflow. The main EstimAlign project "
+            "is the src/ implementation and simulation notebook; this script is only "
+            "for rerunning selected case-study checks with datasets obtained through miRBench."
+        )
     )
     parser.add_argument("--dataset", default="hejret", choices=sorted(PAIRED_DATASET_SPLITS))
     parser.add_argument("--dataset-split", default=None, choices=SUPPORTED_DATASET_SPLITS)
@@ -192,7 +196,7 @@ def main():
             for alias, inputs in test_inputs.items():
                 test_prob = score_pairs(inputs[0], inputs[1], result["aligner"], result["alpha"])
                 row.update({f"{alias}_{k}": v for k, v in evaluate(inputs[2], test_prob).items()})
-        except Exception as exc:  # keep long grids running and report failures in CSV
+        except Exception as exc:  # keep long review grids running and report failures in CSV
             row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
         rows.append(row)
         print(f"Completed {idx}/{len(grid)}: {row['status']}", flush=True)
