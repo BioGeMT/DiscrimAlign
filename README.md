@@ -11,7 +11,7 @@ pyproject.toml                 Project environment managed by uv
 case_study_for_mirna/          miRNA case-study workflow and manuscript-result runs
 ```
 
-The miRNA case-study workflow writes its datasets to `data/raw/` and its outputs to `results/case_study_for_mirna/`.
+The miRNA case-study workflow uses `miRBench` for dataset access and writes its outputs to `results/case_study_for_mirna/`.
 
 ## Requirements
 
@@ -112,19 +112,7 @@ The miRNA workflow is contained in:
 case_study_for_mirna/
 ```
 
-Dataset access is handled through the `miRBench` package. The case-study scripts write the corresponding tabular datasets under `data/raw/`.
-
-List the available dataset aliases:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --list
-```
-
-Prepare the default Hejret datasets:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py
-```
+Dataset access is handled through the `miRBench` package during the run.
 
 Run a two-configuration example on the Hejret data:
 
