@@ -1,10 +1,10 @@
 # miRNA case study
 
-This directory contains the miRNA case-study workflow for EstimAlign. The scripts use the same `uv` project environment as the main repository and obtain datasets through the `miRBench` package.
+This directory contains the miRNA case-study workflow for EstimAlign. The scripts use the same `uv` project environment as the main repository and access datasets through the `miRBench` package during execution.
 
 ## Files
 
-- `import_mirbench_datasets.py`: resolves EstimAlign dataset aliases, obtains the corresponding datasets through `miRBench`, and writes the tabular files under `data/raw/`.
+- `import_mirbench_datasets.py`: maps EstimAlign dataset aliases to the corresponding `miRBench` datasets.
 - `case_study_mirna.py`: runs an EstimAlign grid on paired train/test datasets or on a single dataset split.
 - `run_mirna_auprc_table.py`: contains the miRNA runs used to reproduce the corresponding manuscript results.
 
@@ -17,32 +17,6 @@ uv sync
 ```
 
 The same environment is used for the EstimAlign implementation, simulation notebook, and miRNA case-study workflow.
-
-## Datasets
-
-List dataset aliases:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --list
-```
-
-Prepare the default Hejret group:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py
-```
-
-Prepare the datasets used for miRNA table calculations:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --groups table
-```
-
-Prepare specific aliases:
-
-```bash
-uv run python case_study_for_mirna/import_mirbench_datasets.py --groups "" --datasets hejret_train,manakov_leftout,klimentova_test
-```
 
 ## Pipeline examples
 
