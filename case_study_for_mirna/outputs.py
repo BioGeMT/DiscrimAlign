@@ -34,6 +34,73 @@ def curve_point_rows(config_name: str, split_name: str, evaluation: dict, kind: 
     return rows
 
 
+def save_pr_plot(train_eval, test_eval, out_path: str | Path, title: str, *, train_label: str = "Train", test_label: str = "Test") -> bool:
+    if plt is None:
+        return False
+    if len(train_eval["recall"]) == 0 or len(test_eval["recall"]) == 0:
+        return False
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.5, 5.5))
+    ax.plot(
+        train_eval["recall"],
+        train_eval["precision"],
+        label=f"{train_label} AP={train_eval['average_precision']:.4f}",
+        linewidth=2,
+    )
+    ax.plot(
+        test_eval["recall"],
+        test_eval["precision"],
+        label=f"{test_label} AP={test_eval['average_precision']:.4f}",
+        linewidth=2,
+    )
+    ax.set_xlabel("Recall")
+    ax.set_ylabel("Precision")
+    ax.set_title(title)
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    return True
+
+
+def save_roc_plot(train_eval, test_eval, out_path: str | Path, title: str, *, train_label: str = "Train", test_label: str = "Test") -> bool:
+    if plt is None:
+        return False
+    if len(train_eval["fpr"]) == 0 or len(test_eval["fpr"]) == 0:
+        return False
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.5, 5.5))
+    ax.plot(
+        train_eval["fpr"],
+        train_eval["tpr"],
+        label=f"{train_label} AUC={train_eval['roc_auc']:.4f}",
+        linewidth=2,
+    )
+    ax.plot(
+        test_eval["fpr"],
+        test_eval["tpr"],
+        label=f"{test_label} AUC={test_eval['roc_auc']:.4f}",
+        linewidth=2,
+    )
+    ax.plot([0, 1], [0, 1], linestyle="--", linewidth=1)
+    ax.set_xlabel("False Positive Rate")
+    ax.set_ylabel("True Positive Rate")
+    ax.set_title(title)
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.grid(True, alpha=0.3)
+    ax.legend(loc="best")
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    return True
+
+
 def save_xy_plot(x_values, y_values, out_path: str | Path, xlabel: str, ylabel: str, title: str) -> bool:
     if plt is None or len(x_values) == 0 or len(y_values) == 0:
         return False
@@ -71,6 +138,9 @@ def save_convergence_plot(rows: list[dict], out_path: str | Path, title: str) ->
     axes[1].set_xlabel("Iteration")
     axes[0].grid(True, alpha=0.3)
     axes[1].grid(True, alpha=0.3)
+    positive_subgrad = [row["subgradient_l2"] for row in subgrad_rows if row["subgradient_l2"] > 0]
+    if positive_subgrad and len(positive_subgrad) == len(subgrad_rows):
+        axes[1].set_yscale("log")
     fig.tight_layout()
     fig.savefig(out_path, dpi=140)
     plt.close(fig)
