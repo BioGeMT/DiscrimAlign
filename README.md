@@ -114,10 +114,10 @@ case_study_for_mirna/
 
 Dataset access is handled through the `miRBench` package during the run.
 
-Run a two-configuration example on the Hejret data:
+Run a two-configuration Hejret calculation:
 
 ```bash
-uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --num-threads 1
+uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --final-max-iter 0 --num-threads 1
 ```
 
 The script
@@ -127,6 +127,8 @@ case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
 contains the miRNA runs used to reproduce the corresponding results reported in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
+
+The manuscript-result workflow uses 100 grid-search iterations and a 1000-iteration final refit of the selected configuration.
 
 Run the manuscript-result workflow from the repository root:
 
@@ -139,3 +141,5 @@ Case-study outputs are written to:
 ```text
 results/case_study_for_mirna/
 ```
+
+Each run directory contains grid summaries, metrics, curve points, trajectory files, and plots. Final-refit outputs are written under the corresponding `final_refit/` directory.
