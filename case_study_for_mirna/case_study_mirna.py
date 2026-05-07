@@ -15,7 +15,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from case_study_for_mirna.import_mirbench_datasets import get_dataset_dataframe
 from case_study_for_mirna.modeling import build_trajectory_rows, fit_configuration, rank_successful, summarize_result
-from case_study_for_mirna.outputs import curve_point_rows, save_convergence_plot, save_xy_plot, write_rows
+from case_study_for_mirna.outputs import curve_point_rows, save_convergence_plot, save_pr_plot, save_roc_plot, write_rows
 from case_study_for_mirna.scoring import evaluate_probabilities, score_pairs_with_model
 
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
@@ -76,17 +76,37 @@ def load_frames(args):
 
 
 def evaluate_model(config, result, inputs_by_split, run_dir):
-    updates, metrics, pr_points, roc_points = {}, [], [], []
+    updates, metrics, pr_points, roc_points, split_stats = {}, [], [], [], {}
     for split_name, inputs in inputs_by_split.items():
         probabilities = score_pairs_with_model(inputs[0], inputs[1], result["aligner"], result["alpha"])
         stats = evaluate_probabilities(inputs[2], probabilities)
+        split_stats[split_name] = stats
         updates[f"ap_{split_name}"] = stats["average_precision"]
         updates[f"roc_auc_{split_name}"] = stats["roc_auc"]
         metrics.append({**config, "split": split_name, "average_precision": stats["average_precision"], "roc_auc": stats["roc_auc"], "status": "ok"})
         pr_points.extend(curve_point_rows(config["config"], split_name, stats, "pr"))
         roc_points.extend(curve_point_rows(config["config"], split_name, stats, "roc"))
-        save_xy_plot(stats["recall"], stats["precision"], run_dir / "pr_curves" / f"{config['config']}_{split_name}.png", "Recall", "Precision", f"{config['config']}: {split_name}")
-        save_xy_plot(stats["fpr"], stats["tpr"], run_dir / "roc_curves" / f"{config['config']}_{split_name}.png", "False Positive Rate", "True Positive Rate", f"{config['config']}: {split_name}")
+    reference_split = "fit" if "fit" in split_stats else "validation"
+    if reference_split in split_stats:
+        for split_name, stats in split_stats.items():
+            if split_name == reference_split:
+                continue
+            save_pr_plot(
+                split_stats[reference_split],
+                stats,
+                run_dir / "pr_curves" / f"{config['config']}_{reference_split}_vs_{split_name}.png",
+                f"{config['config']}: {reference_split} vs {split_name}",
+                train_label=reference_split,
+                test_label=split_name,
+            )
+            save_roc_plot(
+                split_stats[reference_split],
+                stats,
+                run_dir / "roc_curves" / f"{config['config']}_{reference_split}_vs_{split_name}.png",
+                f"{config['config']}: {reference_split} vs {split_name}",
+                train_label=reference_split,
+                test_label=split_name,
+            )
     return updates, metrics, pr_points, roc_points
 
 
@@ -99,7 +119,7 @@ def main():
     fit_inputs = prepare_inputs(fit_frame)
     validation_inputs = prepare_inputs(validation_frame)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
-    inputs_by_split = {"validation": validation_inputs, **evaluation_inputs}
+    inputs_by_split = {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
     grid = list(product(csv_values(args.aligner_modes), csv_values(args.gap_modes), csv_values(args.substitution_modes), csv_values(args.stepfunctions), [float(v) for v in csv_values(args.step_scales)], [int(v) for v in csv_values(args.max_iters)]))
     if args.limit_configs:
         grid = grid[: args.limit_configs]
@@ -136,7 +156,7 @@ def main():
         final_config.update({"config_index": 0, "config": f"final_refit_{best['config']}", "max_iter": args.final_max_iter})
         result, runtime = fit_configuration(fit_inputs, final_config)
         final_row = summarize_result(final_config, result, runtime)
-        final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, evaluation_inputs, run_dir / "final_refit")
+        final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, {"train": prepare_inputs(fit_frame), **evaluation_inputs}, run_dir / "final_refit")
         final_row.update(final_updates)
         final_trajectories = build_trajectory_rows(final_config, result)
         write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
@@ -144,6 +164,7 @@ def main():
         write_rows(run_dir / "final_refit" / "pr_points.csv", final_pr)
         write_rows(run_dir / "final_refit" / "roc_points.csv", final_roc)
         write_rows(run_dir / "final_refit" / "trajectory.csv", final_trajectories)
+        save_convergence_plot(final_trajectories, run_dir / "final_refit" / "convergence.png", final_config["config"])
     write_rows(run_dir / "summary.csv", summary_rows)
     write_rows(run_dir / "errors.csv", error_rows)
     write_rows(run_dir / "metrics.csv", metric_rows)
