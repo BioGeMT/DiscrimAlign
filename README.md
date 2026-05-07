@@ -2,15 +2,13 @@
 
 EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The central components of the repository are the mathematical and computational implementation in `src/` and the simulation experiments notebook.
 
-The miRNA case study is included as optional supplementary material for manuscript review. It is provided so that selected case-study results can be reproduced if needed, but it is not required for using the main EstimAlign method or for running the simulation experiments.
-
 ## Repository structure
 
 ```text
 src/                         Core EstimAlign implementation
 Simulation experiments.ipynb  Simulation experiments for the manuscript
 pyproject.toml                Reproducible project environment managed by uv
-case_study_for_mirna/         Optional miRNA case-study workflow
+case_study_for_mirna/         miRNA case-study workflow
 ```
 
 ## Requirements
@@ -19,7 +17,7 @@ case_study_for_mirna/         Optional miRNA case-study workflow
 - `uv` for environment management
 - Jupyter or VS Code notebook support for running `Simulation experiments.ipynb`
 
-The core project environment does not require `miRBench`. The `miRBench` package is installed only when the optional case-study dependency group is requested.
+The repository provides one main project environment through `uv`. The optional `case-study` dependency group adds the package needed by the miRNA case-study scripts to obtain datasets through `miRBench`. The mathematical implementation in `src/`, the simulation notebook, and the case-study scripts are otherwise intended to run in the same project environment.
 
 ## Installing `uv`
 
@@ -49,13 +47,21 @@ uv --version
 
 ## Creating the project environment
 
-From the repository root, install the core dependencies:
+From the repository root, install the standard project dependencies:
 
 ```bash
 uv sync
 ```
 
-This creates a local `.venv/` environment and installs the dependencies needed for the main `src/` scripts and simulation experiments.
+This creates a local `.venv/` environment for the main implementation and simulation experiments.
+
+For the full reproducible research environment, including the miRNA case-study dataset interface, use:
+
+```bash
+uv sync --extra case-study
+```
+
+The difference is that `--extra case-study` also installs `miRBench`, which is used by `case_study_for_mirna/` to download or reuse cached miRNA benchmark datasets.
 
 To verify that the environment is available:
 
@@ -65,7 +71,7 @@ uv run python --version
 
 ## Installing Jupyter
 
-Jupyter is needed only if you want to run the simulation notebook through JupyterLab. It is not part of the minimal core dependency set.
+Jupyter is needed to run the simulation notebook through JupyterLab. It is not installed by `uv sync` unless it is added explicitly.
 
 To install JupyterLab into the project environment:
 
@@ -89,7 +95,7 @@ uv run --with jupyterlab jupyter lab "Simulation experiments.ipynb"
 
 If using VS Code, install the Python and Jupyter extensions. Then:
 
-1. Run `uv sync` from the repository root.
+1. Run `uv sync` or `uv sync --extra case-study` from the repository root.
 2. Open `Simulation experiments.ipynb`.
 3. Select the kernel associated with the local `.venv/` environment.
 
@@ -146,7 +152,7 @@ uv run jupyter lab "Simulation experiments.ipynb"
 
 or open the notebook in VS Code using the `.venv/` kernel.
 
-## Optional miRNA case study
+## miRNA case study
 
 The folder
 
@@ -154,9 +160,9 @@ The folder
 case_study_for_mirna/
 ```
 
-contains an optional workflow for reproducing selected miRNA case-study calculations. This workflow uses the `miRBench` package to obtain datasets and reuses cached files when available.
+contains scripts for reproducing selected miRNA case-study calculations. This workflow uses the `miRBench` package to obtain datasets and reuses cached files when available.
 
-Install the optional dependency group with:
+Install the project environment with the case-study dependency group:
 
 ```bash
 uv sync --extra case-study
@@ -188,4 +194,4 @@ results/case_study_for_mirna/
 
 ## Data policy
 
-Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` only when the optional case-study scripts are run.
+Raw miRBench datasets are not stored as primary repository artifacts. They are requested through `miRBench` only when the case-study scripts are run.
