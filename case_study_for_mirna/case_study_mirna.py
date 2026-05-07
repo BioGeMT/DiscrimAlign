@@ -18,10 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from src.estimalign import estimalign
 from src.optimization import create_constant_step, create_powerstep
-from case_study_for_mirna.import_mirbench_datasets import (
-    download_named_dataset,
-    output_filename,
-)
+from case_study_for_mirna.import_mirbench_datasets import get_dataset_dataframe
 
 PAIRED_DATASET_SPLITS = {
     "hejret": ("hejret_train", "hejret_test"),
@@ -74,7 +71,6 @@ def parse_args():
             "<dataset>_train, for example: hejret_test,manakov_test,manakov_leftout."
         ),
     )
-    parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--results-dir", default="results/case_study_for_mirna")
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
@@ -90,13 +86,8 @@ def parse_args():
     return parser.parse_args()
 
 
-def dataset_path(alias: str, data_dir: str | Path) -> Path:
-    return Path(data_dir) / output_filename(alias)
-
-
-def load_dataset(alias: str, data_dir: str | Path) -> pd.DataFrame:
-    download_named_dataset(alias, output_dir=data_dir)
-    return pd.read_csv(dataset_path(alias, data_dir), sep="\t", compression="gzip")
+def load_dataset(alias: str) -> pd.DataFrame:
+    return get_dataset_dataframe(alias)
 
 
 def prepare_inputs(df: pd.DataFrame):
@@ -141,7 +132,6 @@ def evaluate(labels, probabilities):
 
 def main():
     args = parse_args()
-    data_dir = Path(args.data_dir)
     results_dir = Path(args.results_dir)
     results_dir.mkdir(parents=True, exist_ok=True)
     eval_splits = _parse_dataset_splits(args.eval_splits)
@@ -150,19 +140,16 @@ def main():
         raise ValueError("--dataset-split and --eval-splits are mutually exclusive.")
 
     if args.dataset_split:
-        train_df = load_dataset(args.dataset_split, data_dir)
+        train_df = load_dataset(args.dataset_split)
         fit_df = train_df
         val_df = train_df
         eval_frames = {args.dataset_split: train_df}
         dataset_label = args.dataset_split
     else:
         train_alias, default_eval_alias = PAIRED_DATASET_SPLITS[args.dataset]
-        train_df = load_dataset(train_alias, data_dir)
+        train_df = load_dataset(train_alias)
         selected_eval_splits = eval_splits or [default_eval_alias]
-        eval_frames = {
-            alias: load_dataset(alias, data_dir)
-            for alias in selected_eval_splits
-        }
+        eval_frames = {alias: load_dataset(alias) for alias in selected_eval_splits}
         fit_df, val_df = train_test_split(
             train_df,
             test_size=args.validation_fraction,
