@@ -58,7 +58,7 @@ def prepare_inputs(frame):
 def load_frames(args):
     if args.dataset_split:
         frame = get_dataset_dataframe(args.dataset_split).reset_index(drop=True)
-        return args.dataset_split, frame, frame, {args.dataset_split: frame}
+        return args.dataset_split, frame, frame, frame, {args.dataset_split: frame}
     train_alias, default_test_alias = PAIRED_DATASET_SPLITS[args.dataset]
     train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
     split_names = csv_values(args.eval_splits) if args.eval_splits else [default_test_alias]
@@ -72,7 +72,7 @@ def load_frames(args):
         random_state=args.split_seed,
         stratify=train_frame["label"].astype(int),
     )
-    return args.dataset, fit_frame.reset_index(drop=True), validation_frame.reset_index(drop=True), evaluation_frames
+    return args.dataset, train_frame, fit_frame.reset_index(drop=True), validation_frame.reset_index(drop=True), evaluation_frames
 
 
 def evaluate_model(config, result, inputs_by_split, run_dir):
@@ -86,7 +86,7 @@ def evaluate_model(config, result, inputs_by_split, run_dir):
         metrics.append({**config, "split": split_name, "average_precision": stats["average_precision"], "roc_auc": stats["roc_auc"], "status": "ok"})
         pr_points.extend(curve_point_rows(config["config"], split_name, stats, "pr"))
         roc_points.extend(curve_point_rows(config["config"], split_name, stats, "roc"))
-    reference_split = "fit" if "fit" in split_stats else "validation"
+    reference_split = "fit" if "fit" in split_stats else "train"
     if reference_split in split_stats:
         for split_name, stats in split_stats.items():
             if split_name == reference_split:
@@ -112,10 +112,11 @@ def evaluate_model(config, result, inputs_by_split, run_dir):
 
 def main():
     args = parse_args()
-    dataset_label, fit_frame, validation_frame, evaluation_frames = load_frames(args)
+    dataset_label, train_frame, fit_frame, validation_frame, evaluation_frames = load_frames(args)
     run_suffix = f"_{args.run_tag}" if args.run_tag else ""
     run_dir = Path(args.results_dir) / f"{dataset_label}{run_suffix}"
     run_dir.mkdir(parents=True, exist_ok=True)
+    train_inputs = prepare_inputs(train_frame)
     fit_inputs = prepare_inputs(fit_frame)
     validation_inputs = prepare_inputs(validation_frame)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
@@ -154,9 +155,9 @@ def main():
         best = ranked[0]
         final_config = {key: best[key] for key in ["dataset", "aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale", "num_threads"]}
         final_config.update({"config_index": 0, "config": f"final_refit_{best['config']}", "max_iter": args.final_max_iter})
-        result, runtime = fit_configuration(fit_inputs, final_config)
+        result, runtime = fit_configuration(train_inputs, final_config)
         final_row = summarize_result(final_config, result, runtime)
-        final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, {"train": prepare_inputs(fit_frame), **evaluation_inputs}, run_dir / "final_refit")
+        final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
         final_row.update(final_updates)
         final_trajectories = build_trajectory_rows(final_config, result)
         write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
