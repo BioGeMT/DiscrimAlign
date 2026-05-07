@@ -33,7 +33,7 @@ def _initial_estim_lineargap_simplesubs(alignment_list, labels):
     """
     Returns an initial estimator of alignment parameters
     using a simple logistic model with intercept and
-    summary predictors: numbers of matches, mismatches, gap opens and gaps.
+    summary predictors: numbers of matches, mismatches, gap opens and gap extends.
     """
     predictors = []
     for aln in alignment_list:
@@ -132,14 +132,6 @@ def create_alignment_workers(seqlistA, seqlistB, aligner):
         return next(aln)
     for seqA, seqB in zip(seqlistA, seqlistB):
         yield delayed(return_alignment)(seqA, seqB, aligner)
-
-
-def get_first_alignment(seqA, seqB, aligner):
-    """
-    Return the first optimal alignment for a pair of sequences.
-    This helper is used by the miRNA case-study workflow.
-    """
-    return next(aligner.align(seqA, seqB))
         
 ### Subgradient method stepfunctions
 def create_constant_step(scale):
