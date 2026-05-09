@@ -5,31 +5,39 @@ and its subgradients
 
 import numpy as np
 from Bio.Align import substitution_matrices
+from scipy.special import expit
 
 
 def logit_partial_scores(alignment_scores, alpha):
     """
     Calculate the logistic function of the alignment scores.
-    This is the function \varsigma(score; alpha) in the paper
+    This is the function \varsigma(score; alpha) in the paper.
     """
-    return 1/(1 + np.exp(-alpha - alignment_scores))
+    alignment_scores = np.asarray(alignment_scores, dtype=float)
+    return expit(alpha + alignment_scores)
+
 
 def logit_logL(logit_scores, labels):
     """
     Calculate the log likelihood in the logistic model.
     logit_scores are a list of values of the logistic function
     of the alignment score, calculated with logit_partial_scores.
-    labels are a 1D numpy array with values 0 or 1.   
+    labels are a 1D numpy array with values 0 or 1.
     """
+    logit_scores = np.asarray(logit_scores, dtype=float)
+    labels = np.asarray(labels)
+    eps = np.finfo(float).eps
+    logit_scores = np.clip(logit_scores, eps, 1.0 - eps)
     logl = 0
     for p, lab in zip(logit_scores, labels):
         if lab == 1:
             logl += np.log(p)
         elif lab == 0:
-            logl += np.log(1-p)
+            logl += np.log1p(-p)
         else:
             raise ValueError('Labels can only be 0 or 1')
     return logl
+
 
 def dlda(logit_scores, labels):
     """
@@ -38,6 +46,7 @@ def dlda(logit_scores, labels):
     The variable labels needs to be a binary iterable with values 0 or 1
     """
     return np.sum(labels - logit_scores)
+
 
 def d2lda2(logit_scores, labels):
     """
@@ -76,7 +85,3 @@ def logit_subgradient(alignment_list, logit_scores,
                 ingap = False
                 subgradient['Substitutions'][char1, char2] += weight
     return subgradient
-    
-
-
-
