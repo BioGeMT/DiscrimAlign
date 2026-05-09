@@ -2,6 +2,38 @@ import numpy as np
 from sklearn.linear_model import LogisticRegression
 from Bio.Align import substitution_matrices
 
+
+class EmptyAlignmentCounts:
+    identities = 0
+    mismatches = 0
+    open_gaps = 0
+    extend_gaps = 0
+    gaps = 0
+
+
+class EmptyLocalAlignment:
+    """Representation of the empty local alignment."""
+
+    score = 0.0
+
+    def counts(self):
+        return EmptyAlignmentCounts()
+
+    def __getitem__(self, index):
+        if index in (0, 1):
+            return ""
+        raise IndexError(index)
+
+
+def get_first_alignment(seqA, seqB, aligner):
+    """Return the first alignment, or the empty local alignment when none exists."""
+    try:
+        return next(aligner.align(seqA, seqB))
+    except StopIteration:
+        if getattr(aligner, "mode", None) == "local":
+            return EmptyLocalAlignment()
+        raise
+
 ### Starting point
 def _initial_estim_affinegap_simplesubs(alignment_list, labels):
     """
@@ -128,8 +160,7 @@ def create_alignment_workers(seqlistA, seqlistB, aligner):
     """
     from joblib import delayed
     def return_alignment(seqA, seqB, aligner):
-        aln = aligner.align(seqA, seqB)
-        return next(aln)
+        return get_first_alignment(seqA, seqB, aligner)
     for seqA, seqB in zip(seqlistA, seqlistB):
         yield delayed(return_alignment)(seqA, seqB, aligner)
         
