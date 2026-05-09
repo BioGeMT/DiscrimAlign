@@ -3,6 +3,8 @@ from __future__ import annotations
 import numpy as np
 from sklearn.metrics import average_precision_score, precision_recall_curve, roc_auc_score, roc_curve
 
+from src.optimization import get_first_alignment
+
 
 def sigmoid(values):
     values = np.clip(np.asarray(values, dtype=float), -500, 500)
@@ -10,7 +12,7 @@ def sigmoid(values):
 
 
 def score_pairs_with_model(seqlist_a, seqlist_b, aligner, alpha):
-    scores = [next(aligner.align(seq_a, seq_b)).score for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
+    scores = [get_first_alignment(seq_a, seq_b, aligner).score for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
     return sigmoid(np.asarray(scores, dtype=float) + float(alpha))
 
 
