@@ -7,7 +7,7 @@ import numpy as np
 from numpy import random as rd
 from scipy.optimize import minimize
 from copy import deepcopy
-from .optimization import get_initial_estimate
+from .optimization import get_initial_estimate, get_first_alignment
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 def estimalign(seqlistA, seqlistB,
@@ -80,8 +80,7 @@ def estimalign(seqlistA, seqlistB,
                                                                       alphabet=alphabet)
 
     if num_threads == 1:
-        alnlist = [aligner.align(seqA, seqB) for seqA, seqB in zip(seqlistA, seqlistB)]
-        alnlist = [next(aln) for aln in alnlist]
+        alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
     else:
         workers = create_alignment_workers(seqlistA, seqlistB, aligner)
         alnlist = parallel(workers)
@@ -130,8 +129,7 @@ def estimalign(seqlistA, seqlistB,
 
         # Realign with the new parameters
         if num_threads == 1:
-            alnlist = [aligner.align(seqA, seqB) for seqA, seqB in zip(seqlistA, seqlistB)]
-            alnlist = [next(aln) for aln in alnlist]
+            alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
         else:
             workers = create_alignment_workers(seqlistA, seqlistB, aligner)
             alnlist = parallel(workers)
@@ -259,7 +257,7 @@ def estimalign(seqlistA, seqlistB,
         results['substitution_matrix'] = updated_parameters['substitution_matrix']
     
     # Realign with the new parameters
-    alnlist = [next(aligner.align(seqA, seqB)) for seqA, seqB in zip(seqlistA, seqlistB)]
+    alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
     alignment_scores = [aln.score for aln in alnlist]
     logit_scores = logit_partial_scores(alignment_scores,
                                             updated_parameters['alpha'])
