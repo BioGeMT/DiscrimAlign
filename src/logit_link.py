@@ -28,15 +28,9 @@ def logit_logL(logit_scores, labels):
     labels = np.asarray(labels)
     eps = np.finfo(float).eps
     logit_scores = np.clip(logit_scores, eps, 1.0 - eps)
-    logl = 0
-    for p, lab in zip(logit_scores, labels):
-        if lab == 1:
-            logl += np.log(p)
-        elif lab == 0:
-            logl += np.log1p(-p)
-        else:
-            raise ValueError('Labels can only be 0 or 1')
-    return logl
+    if not np.isin(labels, [0, 1]).all():
+        raise ValueError('Labels can only be 0 or 1')
+    return float(np.sum(labels * np.log(logit_scores) + (1 - labels) * np.log1p(-logit_scores)))
 
 
 def dlda(logit_scores, labels):

@@ -10,6 +10,18 @@ from copy import deepcopy
 from .optimization import get_initial_estimate, get_first_alignment
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
+
+def _align_pairs(seqlistA, seqlistB, aligner, num_threads):
+    if num_threads == 1:
+        return [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
+
+    from joblib import Parallel
+    from .optimization import create_alignment_workers
+
+    parallel = Parallel(n_jobs=num_threads, return_as='list')
+    return parallel(create_alignment_workers(seqlistA, seqlistB, aligner))
+
+
 def estimalign(seqlistA, seqlistB,
                labels,
                baseline_aligner=None,
@@ -21,19 +33,14 @@ def estimalign(seqlistA, seqlistB,
                stepfunction = None,
                max_iter=1000, tol=1e-3,
                num_threads = 1,
+               subgradient_scale=1.0,
+               return_alignments=True,
                verbose=False):
     ### TOOD: Implement tol, 
     # and stepfunctions (put them in optimization.py)
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
-    if num_threads > 1:
-        from joblib import Parallel
-        from .optimization import create_alignment_workers
-        parallel = Parallel(n_jobs=num_threads,
-                            return_as = 'list')
-
-        
     if alphabet is None:
         charsetA = set(char for seq in seqlistA for char in seq)
         charsetB = set(char for seq in seqlistB for char in seq)
@@ -79,11 +86,7 @@ def estimalign(seqlistA, seqlistB,
             aligner.substitution_matrix = substitution_matrices.Array(data=9*np.eye(len(alphabet))-4,
                                                                       alphabet=alphabet)
 
-    if num_threads == 1:
-        alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
-    else:
-        workers = create_alignment_workers(seqlistA, seqlistB, aligner)
-        alnlist = parallel(workers)
+    alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
     alignment_scores = [aln.score for aln in alnlist]
     
     # Initial logistic estimation
@@ -128,11 +131,7 @@ def estimalign(seqlistA, seqlistB,
             aligner.substitution_matrix = updated_parameters['substitution_matrix']
 
         # Realign with the new parameters
-        if num_threads == 1:
-            alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
-        else:
-            workers = create_alignment_workers(seqlistA, seqlistB, aligner)
-            alnlist = parallel(workers)
+        alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
         alignment_scores = [aln.score for aln in alnlist]
         logit_scores = logit_partial_scores(alignment_scores,
                                                 updated_parameters['alpha'])
@@ -183,6 +182,10 @@ def estimalign(seqlistA, seqlistB,
         subgradient = logit_subgradient(alnlist, logit_scores,
                                         labels, new_alpha,
                                         alphabet)
+        if subgradient_scale != 1.0:
+            subgradient['Gap opens'] *= subgradient_scale
+            subgradient['Gap extends'] *= subgradient_scale
+            subgradient['Substitutions'] *= subgradient_scale
         
         stepsize = stepfunction(iternb)
         if verbose:
@@ -257,7 +260,7 @@ def estimalign(seqlistA, seqlistB,
         results['substitution_matrix'] = updated_parameters['substitution_matrix']
     
     # Realign with the new parameters
-    alnlist = [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
+    alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
     alignment_scores = [aln.score for aln in alnlist]
     logit_scores = logit_partial_scores(alignment_scores,
                                             updated_parameters['alpha'])
@@ -276,7 +279,8 @@ def estimalign(seqlistA, seqlistB,
     results['subgradient_l2_trajectory'] = subgradient_l2_trajectory
     results['final_loglik'] = new_logL
     results['aligner'] = aligner
-    results['alignments'] = alnlist
+    if return_alignments:
+        results['alignments'] = alnlist
     results['alignment_logit_scores'] = logit_scores
     results['alpha'] = updated_parameters['alpha']
     # results['loglik_expectation_trajectory'] = loglik_expectation

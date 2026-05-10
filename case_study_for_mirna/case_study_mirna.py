@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 from Bio.Seq import Seq
+from joblib import Parallel, delayed
 from sklearn.model_selection import train_test_split
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -44,6 +45,7 @@ def parse_args():
     parser.add_argument("--final-max-iter", type=int, default=1000)
     parser.add_argument("--selection-objective", default="auto", choices=["auto", "validation_ap", "final_loglik"])
     parser.add_argument("--num-threads", type=int, default=1)
+    parser.add_argument("--config-workers", type=int, default=1)
     parser.add_argument("--limit-configs", type=int, default=0)
     return parser.parse_args()
 
@@ -78,7 +80,14 @@ def load_frames(args):
 def evaluate_model(config, result, inputs_by_split, run_dir):
     updates, metrics, pr_points, roc_points, split_stats = {}, [], [], [], {}
     for split_name, inputs in inputs_by_split.items():
-        probabilities = score_pairs_with_model(inputs[0], inputs[1], result["aligner"], result["alpha"])
+        print(f"  Scoring split {split_name} ({len(inputs[2])} pairs)", flush=True)
+        probabilities = score_pairs_with_model(
+            inputs[0],
+            inputs[1],
+            result["aligner"],
+            result["alpha"],
+            num_threads=int(config["num_threads"]),
+        )
         stats = evaluate_probabilities(inputs[2], probabilities)
         split_stats[split_name] = stats
         updates[f"ap_{split_name}"] = stats["average_precision"]
@@ -110,6 +119,55 @@ def evaluate_model(config, result, inputs_by_split, run_dir):
     return updates, metrics, pr_points, roc_points
 
 
+def build_config(dataset_label, index, values, num_threads):
+    aligner_mode, gap_mode, substitution_mode, stepfunction, step_scale, max_iter = values
+    config_name = f"cfg_{index:04d}_{aligner_mode}_{gap_mode}_{substitution_mode}_{stepfunction}_s{step_scale}_i{max_iter}"
+    return {
+        "dataset": dataset_label,
+        "config_index": index,
+        "config": config_name,
+        "aligner_mode": aligner_mode,
+        "gap_mode": gap_mode,
+        "substitution_mode": substitution_mode,
+        "stepfunction": stepfunction,
+        "step_scale": step_scale,
+        "max_iter": max_iter,
+        "num_threads": num_threads,
+    }
+
+
+def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir):
+    print(f"Starting {index}/{total_configs}: {config['config']}", flush=True)
+    try:
+        result, runtime = fit_configuration(fit_inputs, config)
+        row = summarize_result(config, result, runtime)
+        updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
+        row.update(updates)
+        trajectories = build_trajectory_rows(config, result)
+        save_convergence_plot(trajectories, run_dir / "convergence" / f"{config['config']}.png", config["config"])
+        print(f"Completed {index}/{total_configs}: ok", flush=True)
+        return {
+            "summary": row,
+            "errors": [],
+            "metrics": metrics,
+            "pr_points": pr_points,
+            "roc_points": roc_points,
+            "trajectories": trajectories,
+        }
+    except Exception as exc:
+        row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
+        print(f"Completed {index}/{total_configs}: error", flush=True)
+        print(f"  {row['error']}", flush=True)
+        return {
+            "summary": row,
+            "errors": [row],
+            "metrics": [],
+            "pr_points": [],
+            "roc_points": [],
+            "trajectories": [],
+        }
+
+
 def main():
     args = parse_args()
     dataset_label, train_frame, fit_frame, validation_frame, evaluation_frames = load_frames(args)
@@ -126,29 +184,24 @@ def main():
         grid = grid[: args.limit_configs]
     summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
     print(f"Running {len(grid)} configurations...", flush=True)
-    for index, values in enumerate(grid, start=1):
-        aligner_mode, gap_mode, substitution_mode, stepfunction, step_scale, max_iter = values
-        config_name = f"cfg_{index:04d}_{aligner_mode}_{gap_mode}_{substitution_mode}_{stepfunction}_s{step_scale}_i{max_iter}"
-        config = {"dataset": dataset_label, "config_index": index, "config": config_name, "aligner_mode": aligner_mode, "gap_mode": gap_mode, "substitution_mode": substitution_mode, "stepfunction": stepfunction, "step_scale": step_scale, "max_iter": max_iter, "num_threads": args.num_threads}
-        try:
-            result, runtime = fit_configuration(fit_inputs, config)
-            row = summarize_result(config, result, runtime)
-            updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
-            row.update(updates)
-            trajectories = build_trajectory_rows(config, result)
-            summary_rows.append(row)
-            metric_rows.extend(metrics)
-            pr_rows.extend(pr_points)
-            roc_rows.extend(roc_points)
-            trajectory_rows.extend(trajectories)
-            save_convergence_plot(trajectories, run_dir / "convergence" / f"{config_name}.png", config_name)
-            print(f"Completed {index}/{len(grid)}: ok", flush=True)
-        except Exception as exc:
-            row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
-            summary_rows.append(row)
-            error_rows.append(row)
-            print(f"Completed {index}/{len(grid)}: error", flush=True)
-            print(f"  {row['error']}", flush=True)
+    configs = [build_config(dataset_label, index, values, args.num_threads) for index, values in enumerate(grid, start=1)]
+    if args.config_workers == 1:
+        results = [
+            run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir)
+            for index, config in enumerate(configs, start=1)
+        ]
+    else:
+        results = Parallel(n_jobs=args.config_workers, return_as="list")(
+            delayed(run_configuration)(index, len(configs), config, fit_inputs, inputs_by_split, run_dir)
+            for index, config in enumerate(configs, start=1)
+        )
+    for result in results:
+        summary_rows.append(result["summary"])
+        error_rows.extend(result["errors"])
+        metric_rows.extend(result["metrics"])
+        pr_rows.extend(result["pr_points"])
+        roc_rows.extend(result["roc_points"])
+        trajectory_rows.extend(result["trajectories"])
     objective = "final_loglik" if args.selection_objective == "auto" and args.dataset_split else args.selection_objective.replace("validation_ap", "validation_ap")
     ranked = rank_successful(summary_rows, objective)
     if ranked and args.final_max_iter > 0:

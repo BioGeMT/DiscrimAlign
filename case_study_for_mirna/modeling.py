@@ -38,6 +38,8 @@ def fit_configuration(fit_inputs, config: dict):
             stepfunction=make_stepfunction(config["stepfunction"], float(config["step_scale"])),
             max_iter=int(config["max_iter"]),
             num_threads=int(config["num_threads"]),
+            subgradient_scale=1.0 / len(fit_inputs[2]),
+            return_alignments=False,
             verbose=False,
         )
     return result, time.perf_counter() - start_time

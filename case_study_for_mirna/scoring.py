@@ -6,14 +6,22 @@ from sklearn.metrics import average_precision_score, precision_recall_curve, roc
 from src.optimization import get_first_alignment
 
 
-def sigmoid(values):
-    values = np.clip(np.asarray(values, dtype=float), -500, 500)
-    return 1.0 / (1.0 + np.exp(-values))
+def _score_pair(seq_a, seq_b, aligner):
+    return get_first_alignment(seq_a, seq_b, aligner).score
 
 
-def score_pairs_with_model(seqlist_a, seqlist_b, aligner, alpha):
-    scores = [get_first_alignment(seq_a, seq_b, aligner).score for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
-    return sigmoid(np.asarray(scores, dtype=float) + float(alpha))
+def score_pairs_with_model(seqlist_a, seqlist_b, aligner, alpha, num_threads=1):
+    if num_threads == 1:
+        scores = [_score_pair(seq_a, seq_b, aligner) for seq_a, seq_b in zip(seqlist_a, seqlist_b)]
+    else:
+        from joblib import Parallel, delayed
+
+        scores = Parallel(n_jobs=num_threads, return_as="list")(
+            delayed(_score_pair)(seq_a, seq_b, aligner) for seq_a, seq_b in zip(seqlist_a, seqlist_b)
+        )
+    # sklearn ranking metrics accept raw decision scores. Avoid sigmoid here:
+    # large fitted alignment scores can saturate to identical probabilities.
+    return np.asarray(scores, dtype=float) + float(alpha)
 
 
 def empty_evaluation():
