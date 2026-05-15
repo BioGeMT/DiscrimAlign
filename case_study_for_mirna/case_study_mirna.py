@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from itertools import product
 from pathlib import Path
@@ -25,6 +26,10 @@ SUPPORTED_DATASET_SPLITS = ["hejret_train", "hejret_test", "manakov_train", "man
 
 def csv_values(raw: str) -> list[str]:
     return [value.strip() for value in raw.split(",") if value.strip()]
+
+
+def log_summary_row(row: dict) -> None:
+    print("SUMMARY_ROW " + json.dumps(row, default=str, sort_keys=True), flush=True)
 
 
 def parse_args():
@@ -143,6 +148,7 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         row = summarize_result(config, result, runtime)
         updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
         row.update(updates)
+        log_summary_row(row)
         trajectories = build_trajectory_rows(config, result)
         save_convergence_plot(trajectories, run_dir / "convergence" / f"{config['config']}.png", config["config"])
         print(f"Completed {index}/{total_configs}: ok", flush=True)
@@ -156,6 +162,7 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         }
     except Exception as exc:
         row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
+        log_summary_row(row)
         print(f"Completed {index}/{total_configs}: error", flush=True)
         print(f"  {row['error']}", flush=True)
         return {
@@ -212,6 +219,7 @@ def main():
         final_row = summarize_result(final_config, result, runtime)
         final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
         final_row.update(final_updates)
+        log_summary_row(final_row)
         final_trajectories = build_trajectory_rows(final_config, result)
         write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
         write_rows(run_dir / "final_refit" / "metrics.csv", final_metrics)
