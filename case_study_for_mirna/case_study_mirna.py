@@ -19,7 +19,7 @@ if str(REPO_ROOT) not in sys.path:
 
 from case_study_for_mirna.import_mirbench_datasets import get_dataset_dataframe
 from case_study_for_mirna.modeling import build_trajectory_rows, fit_configuration, rank_successful, summarize_result
-from case_study_for_mirna.outputs import curve_point_rows, save_convergence_plot, save_pr_plot, save_roc_plot, write_rows
+from case_study_for_mirna.outputs import curve_point_rows, save_convergence_plot, save_pr_plot, save_roc_plot, save_xy_plot, write_rows
 from case_study_for_mirna.scoring import evaluate_probabilities, score_pairs_with_model
 
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
@@ -116,12 +116,29 @@ def improvement_by_iteration_rows(rows: list[dict]) -> list[dict]:
     return improvement_rows
 
 
+def save_improvement_plot(rows: list[dict], out_path: str | Path, title: str) -> bool:
+    finite_rows = [row for row in rows if np.isfinite(row.get("loglik_delta_from_initial", np.nan))]
+    if not finite_rows:
+        return False
+    return save_xy_plot(
+        [row["iteration"] for row in finite_rows],
+        [row["loglik_delta_from_initial"] for row in finite_rows],
+        out_path,
+        "Iteration",
+        "Log-likelihood improvement from initial",
+        title,
+    )
+
+
 def export_model_artifacts(result: dict, config: dict, row: dict, trajectories: list[dict], artifact_dir: str | Path) -> dict:
     artifact_dir = Path(artifact_dir)
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    improvement_rows = improvement_by_iteration_rows(trajectories)
+    improvement_plot_path = artifact_dir / "improvement_by_iteration.png"
     write_json(artifact_dir / "model_parameters.json", model_parameters(result, config, row))
     write_rows(artifact_dir / "trajectory.csv", trajectories)
-    write_rows(artifact_dir / "improvement_by_iteration.csv", improvement_by_iteration_rows(trajectories))
+    write_rows(artifact_dir / "improvement_by_iteration.csv", improvement_rows)
+    save_improvement_plot(improvement_rows, improvement_plot_path, f"{config['config']}: log-likelihood improvement")
     with (artifact_dir / "model.pkl").open("wb") as handle:
         pickle.dump({"config": config, "summary": row, "aligner": result["aligner"]}, handle)
     print(f"MODEL_ARTIFACTS {artifact_dir}", flush=True)
@@ -130,6 +147,7 @@ def export_model_artifacts(result: dict, config: dict, row: dict, trajectories: 
         "model_parameters_path": str(artifact_dir / "model_parameters.json"),
         "model_pickle_path": str(artifact_dir / "model.pkl"),
         "improvement_by_iteration_path": str(artifact_dir / "improvement_by_iteration.csv"),
+        "improvement_by_iteration_plot_path": str(improvement_plot_path),
     }
 
 
