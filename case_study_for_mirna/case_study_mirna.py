@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import pickle
+import shutil
 import sys
 from itertools import product
 from pathlib import Path
@@ -30,6 +32,116 @@ def csv_values(raw: str) -> list[str]:
 
 def log_summary_row(row: dict) -> None:
     print("SUMMARY_ROW " + json.dumps(row, default=str, sort_keys=True), flush=True)
+
+
+def json_safe(value):
+    if isinstance(value, dict):
+        return {key: json_safe(val) for key, val in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [json_safe(val) for val in value]
+    if isinstance(value, np.ndarray):
+        return json_safe(value.tolist())
+    if isinstance(value, np.generic):
+        return json_safe(value.item())
+    if isinstance(value, float) and not np.isfinite(value):
+        return None
+    if isinstance(value, Path):
+        return str(value)
+    return value
+
+
+def write_json(path: str | Path, payload: dict) -> None:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        json.dump(json_safe(payload), handle, indent=2, sort_keys=True)
+        handle.write("\n")
+
+
+def substitution_matrix_payload(matrix) -> dict | None:
+    if matrix is None:
+        return None
+    alphabet = getattr(matrix, "alphabet", None)
+    alphabet_values = list(alphabet) if alphabet is not None else None
+    values = np.asarray(matrix, dtype=float)
+    payload = {"alphabet": alphabet_values, "values": values.tolist()}
+    if alphabet_values is not None and values.ndim == 2:
+        payload["entries"] = [
+            {"row": row_char, "column": col_char, "score": float(values[row_index, col_index])}
+            for row_index, row_char in enumerate(alphabet_values)
+            for col_index, col_char in enumerate(alphabet_values)
+        ]
+    return payload
+
+
+def model_parameters(result: dict, config: dict, row: dict) -> dict:
+    aligner = result["aligner"]
+    substitution_matrix = result.get("substitution_matrix", getattr(aligner, "substitution_matrix", None))
+    return {
+        "config": config,
+        "summary": row,
+        "alpha": result.get("alpha"),
+        "final_loglik": result.get("final_loglik"),
+        "aligner_mode": getattr(aligner, "mode", None),
+        "gap_scores": {
+            "open_gap_score": getattr(aligner, "open_gap_score", None),
+            "extend_gap_score": getattr(aligner, "extend_gap_score", None),
+            "gap_score": getattr(aligner, "gap_score", None),
+        },
+        "simple_substitution_scores": {
+            "match_score": getattr(aligner, "match_score", None),
+            "mismatch_score": getattr(aligner, "mismatch_score", None),
+        },
+        "substitution_matrix": substitution_matrix_payload(substitution_matrix),
+    }
+
+
+def improvement_by_iteration_rows(rows: list[dict]) -> list[dict]:
+    loglik_rows = [row for row in rows if np.isfinite(row.get("loglik", np.nan))]
+    if not loglik_rows:
+        return []
+    baseline = float(loglik_rows[0]["loglik"])
+    previous = None
+    improvement_rows = []
+    for row in loglik_rows:
+        current = float(row["loglik"])
+        improvement_rows.append(
+            {
+                **row,
+                "loglik_delta_from_initial": current - baseline,
+                "loglik_delta_from_previous": np.nan if previous is None else current - previous,
+            }
+        )
+        previous = current
+    return improvement_rows
+
+
+def export_model_artifacts(result: dict, config: dict, row: dict, trajectories: list[dict], artifact_dir: str | Path) -> dict:
+    artifact_dir = Path(artifact_dir)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    write_json(artifact_dir / "model_parameters.json", model_parameters(result, config, row))
+    write_rows(artifact_dir / "trajectory.csv", trajectories)
+    write_rows(artifact_dir / "improvement_by_iteration.csv", improvement_by_iteration_rows(trajectories))
+    with (artifact_dir / "model.pkl").open("wb") as handle:
+        pickle.dump({"config": config, "summary": row, "aligner": result["aligner"]}, handle)
+    print(f"MODEL_ARTIFACTS {artifact_dir}", flush=True)
+    return {
+        "model_artifact_dir": str(artifact_dir),
+        "model_parameters_path": str(artifact_dir / "model_parameters.json"),
+        "model_pickle_path": str(artifact_dir / "model.pkl"),
+        "improvement_by_iteration_path": str(artifact_dir / "improvement_by_iteration.csv"),
+    }
+
+
+def copy_artifact_dir(source_dir: str | Path, destination_dir: str | Path) -> None:
+    source_dir = Path(source_dir)
+    destination_dir = Path(destination_dir)
+    if not source_dir.exists():
+        return
+    if destination_dir.exists():
+        shutil.rmtree(destination_dir)
+    shutil.copytree(source_dir, destination_dir)
+    print(f"COPIED_MODEL_ARTIFACTS {source_dir} -> {destination_dir}", flush=True)
 
 
 def parse_args():
@@ -148,8 +260,10 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         row = summarize_result(config, result, runtime)
         updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
         row.update(updates)
-        log_summary_row(row)
         trajectories = build_trajectory_rows(config, result)
+        artifact_paths = export_model_artifacts(result, config, row, trajectories, run_dir / "model_artifacts" / config["config"])
+        row.update(artifact_paths)
+        log_summary_row(row)
         save_convergence_plot(trajectories, run_dir / "convergence" / f"{config['config']}.png", config["config"])
         print(f"Completed {index}/{total_configs}: ok", flush=True)
         return {
@@ -211,6 +325,10 @@ def main():
         trajectory_rows.extend(result["trajectories"])
     objective = "final_loglik" if args.selection_objective == "auto" and args.dataset_split else args.selection_objective.replace("validation_ap", "validation_ap")
     ranked = rank_successful(summary_rows, objective)
+    if ranked:
+        best = ranked[0]
+        copy_artifact_dir(best.get("model_artifact_dir", ""), run_dir / "best_grid_model")
+        write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best})
     if ranked and args.final_max_iter > 0:
         best = ranked[0]
         final_config = {key: best[key] for key in ["dataset", "aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale", "num_threads"]}
@@ -219,8 +337,10 @@ def main():
         final_row = summarize_result(final_config, result, runtime)
         final_updates, final_metrics, final_pr, final_roc = evaluate_model(final_config, result, {"train": train_inputs, **evaluation_inputs}, run_dir / "final_refit")
         final_row.update(final_updates)
-        log_summary_row(final_row)
         final_trajectories = build_trajectory_rows(final_config, result)
+        final_artifact_paths = export_model_artifacts(result, final_config, final_row, final_trajectories, run_dir / "final_refit" / "model")
+        final_row.update(final_artifact_paths)
+        log_summary_row(final_row)
         write_rows(run_dir / "final_refit" / "summary.csv", [final_row])
         write_rows(run_dir / "final_refit" / "metrics.csv", final_metrics)
         write_rows(run_dir / "final_refit" / "pr_points.csv", final_pr)
