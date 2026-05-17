@@ -74,6 +74,16 @@ def substitution_matrix_payload(matrix) -> dict | None:
     return payload
 
 
+def gap_scores_payload(config: dict, row: dict) -> dict:
+    """Return fitted gap scores without querying grouped affine Biopython attributes."""
+    if config.get("gap_mode") == "affine":
+        return {
+            "open_gap_score": row.get("open_gap_score"),
+            "extend_gap_score": row.get("extend_gap_score"),
+        }
+    return {"gap_score": row.get("gap_score")}
+
+
 def model_parameters(result: dict, config: dict, row: dict) -> dict:
     aligner = result["aligner"]
     substitution_matrix = result.get("substitution_matrix", getattr(aligner, "substitution_matrix", None))
@@ -83,11 +93,7 @@ def model_parameters(result: dict, config: dict, row: dict) -> dict:
         "alpha": result.get("alpha"),
         "final_loglik": result.get("final_loglik"),
         "aligner_mode": getattr(aligner, "mode", None),
-        "gap_scores": {
-            "open_gap_score": getattr(aligner, "open_gap_score", None),
-            "extend_gap_score": getattr(aligner, "extend_gap_score", None),
-            "gap_score": getattr(aligner, "gap_score", None),
-        },
+        "gap_scores": gap_scores_payload(config, row),
         "simple_substitution_scores": {
             "match_score": getattr(aligner, "match_score", None),
             "mismatch_score": getattr(aligner, "mismatch_score", None),
