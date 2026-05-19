@@ -104,6 +104,8 @@ print(result["alpha"])
 
 The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
 
+Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib task processes a chunk of sequence pairs rather than a single pair, which reduces scheduler overhead across repeated optimization iterations while preserving alignment order.
+
 ## miRNA case study
 
 The miRNA workflow is contained in:
@@ -184,3 +186,28 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 `--max-iters` is the number of additional subgradient iterations to run from the saved model. For example, if the saved model came from a 200-iteration run, `--max-iters 50` performs 50 more iterations from that fitted aligner rather than rerunning 250 iterations from scratch.
 
 The continuation run writes a new run directory, saves a new `model.pkl`, and copies the selected continuation model to its own `best_grid_model/` directory.
+
+### Train-only runs with skipped evaluation
+
+For long continuation runs, use `--skip-evaluation` to fit and save model artifacts without scoring `fit`, `validation`, or evaluation splits and without generating PR/ROC curves. This is useful when the training step is the bottleneck and full Manakov test scoring should be delayed until after a promising continuation model has been saved.
+
+Example: continue the selected Manakov model for 50 additional iterations and save the model without evaluation:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset manakov \
+  --aligner-modes local \
+  --gap-modes affine \
+  --substitution-modes general \
+  --stepfunctions constant \
+  --step-scales 0.0005 \
+  --max-iters 50 \
+  --final-max-iter 0 \
+  --num-threads 80 \
+  --config-workers 1 \
+  --warm-start-model results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl \
+  --skip-evaluation \
+  --run-tag best_manakov_affine_general_warmstart_plus50_train_only
+```
+
+When evaluation is skipped, `summary.csv` still records the fitting summary, runtime, final log-likelihood, and model artifact paths. The selected train-only model is copied to `best_grid_model/` using final log-likelihood for ranking. A later run can evaluate the saved `best_grid_model/model.pkl` by using it as `--warm-start-model` with `--max-iters 0` and normal evaluation splits.
