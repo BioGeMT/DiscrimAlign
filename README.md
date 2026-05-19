@@ -143,3 +143,44 @@ results/case_study_for_mirna/
 ```
 
 Each run directory contains grid summaries, metrics, curve points, trajectory files, and plots. Final-refit outputs are written under the corresponding `final_refit/` directory.
+
+### Warm-starting from a saved case-study model
+
+The miRNA case-study CLI can continue fitting from a saved `model.pkl` artifact by passing `--warm-start-model`. This is useful after a grid search has already selected a strong configuration and you want to run additional optimization iterations without restarting from the default initialization.
+
+A saved model artifact is written for every successful grid configuration under:
+
+```text
+results/case_study_for_mirna/<run_name>/model_artifacts/<config_name>/model.pkl
+```
+
+The selected grid model is also copied to:
+
+```text
+results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl
+```
+
+Warm-start compatibility is checked against the requested `aligner_mode`, `gap_mode`, and `substitution_mode`. The continuation run should normally use the same configuration family as the saved model.
+
+Example: continue the selected Manakov local-affine-general model for 50 additional iterations:
+
+```bash
+uv run python case_study_for_mirna/case_study_mirna.py \
+  --dataset manakov \
+  --eval-splits hejret_test,manakov_test,manakov_leftout \
+  --aligner-modes local \
+  --gap-modes affine \
+  --substitution-modes general \
+  --stepfunctions constant \
+  --step-scales 0.0005 \
+  --max-iters 50 \
+  --final-max-iter 0 \
+  --num-threads 80 \
+  --config-workers 1 \
+  --warm-start-model results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl \
+  --run-tag best_manakov_affine_general_warmstart_plus50_threads80
+```
+
+`--max-iters` is the number of additional subgradient iterations to run from the saved model. For example, if the saved model came from a 200-iteration run, `--max-iters 50` performs 50 more iterations from that fitted aligner rather than rerunning 250 iterations from scratch.
+
+The continuation run writes a new run directory, saves a new `model.pkl`, and copies the selected continuation model to its own `best_grid_model/` directory.
