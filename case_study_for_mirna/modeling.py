@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pickle
 import time
 import warnings
+from copy import deepcopy
+from pathlib import Path
 
 import numpy as np
 
@@ -19,8 +22,55 @@ def make_stepfunction(name: str, scale: float):
     raise ValueError(f"Unknown stepfunction: {name}")
 
 
+def load_warm_start_model(path: str | Path, config: dict):
+    """Load a saved case-study model artifact for warm-start continuation."""
+    path = Path(path)
+    with path.open("rb") as handle:
+        payload = pickle.load(handle)
+
+    if "aligner" not in payload:
+        raise ValueError(f"Warm-start model {path} does not contain an aligner.")
+
+    aligner = deepcopy(payload["aligner"])
+    summary = payload.get("summary", {})
+    saved_config = payload.get("config", {})
+
+    for key in ["aligner_mode", "gap_mode", "substitution_mode"]:
+        saved_value = saved_config.get(key) or summary.get(key)
+        requested_value = config.get(key)
+        if saved_value is not None and requested_value is not None and str(saved_value) != str(requested_value):
+            raise ValueError(
+                f"Warm-start model {path} has {key}={saved_value!r}, "
+                f"but this run requested {requested_value!r}."
+            )
+
+    parameters = {"alpha": summary.get("alpha", payload.get("alpha"))}
+    if parameters["alpha"] is None:
+        raise ValueError(f"Warm-start model {path} does not contain alpha in its summary.")
+
+    if config["gap_mode"] == "affine":
+        parameters["open_gap_score"] = getattr(aligner, "open_gap_score")
+        parameters["extend_gap_score"] = getattr(aligner, "extend_gap_score")
+    else:
+        parameters["gap_score"] = getattr(aligner, "gap_score")
+
+    if config["substitution_mode"] == "simple":
+        parameters["match_score"] = getattr(aligner, "match_score")
+        parameters["mismatch_score"] = getattr(aligner, "mismatch_score")
+    else:
+        parameters["substitution_matrix"] = deepcopy(getattr(aligner, "substitution_matrix"))
+
+    return aligner, parameters
+
+
 def fit_configuration(fit_inputs, config: dict):
     start_time = time.perf_counter()
+    warm_start_model = config.get("warm_start_model")
+    baseline_aligner = None
+    initial_parameters = None
+    if warm_start_model:
+        baseline_aligner, initial_parameters = load_warm_start_model(warm_start_model, config)
+
     with warnings.catch_warnings():
         warnings.filterwarnings(
             "ignore",
@@ -32,6 +82,7 @@ def fit_configuration(fit_inputs, config: dict):
             seqlistA=fit_inputs[0],
             seqlistB=fit_inputs[1],
             labels=fit_inputs[2],
+            baseline_aligner=baseline_aligner,
             aligner_mode=config["aligner_mode"],
             gap_mode=config["gap_mode"],
             substitution_mode=config["substitution_mode"],
@@ -39,6 +90,7 @@ def fit_configuration(fit_inputs, config: dict):
             max_iter=int(config["max_iter"]),
             num_threads=int(config["num_threads"]),
             subgradient_scale=1.0 / len(fit_inputs[2]),
+            initial_parameters=initial_parameters,
             return_alignments=False,
             verbose=False,
         )
