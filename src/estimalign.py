@@ -48,6 +48,30 @@ def _align_pairs(seqlistA, seqlistB, aligner, num_threads):
     return [alignment for chunk in chunked_alignments for alignment in chunk]
 
 
+def _matrix_alphabet(matrix):
+    alphabet = getattr(matrix, 'alphabet', None)
+    if alphabet is None:
+        return None
+    return ''.join(alphabet)
+
+
+def _warm_start_alphabet(baseline_aligner=None, initial_parameters=None):
+    if initial_parameters is not None:
+        matrix = initial_parameters.get('substitution_matrix')
+        alphabet = _matrix_alphabet(matrix)
+        if alphabet:
+            return alphabet
+    if baseline_aligner is not None:
+        try:
+            matrix = getattr(baseline_aligner, 'substitution_matrix')
+        except Exception:
+            matrix = None
+        alphabet = _matrix_alphabet(matrix)
+        if alphabet:
+            return alphabet
+    return None
+
+
 def estimalign(seqlistA, seqlistB,
                labels,
                baseline_aligner=None,
@@ -69,10 +93,12 @@ def estimalign(seqlistA, seqlistB,
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
     if alphabet is None:
+        alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
+    if alphabet is None:
         charsetA = set(char for seq in seqlistA for char in seq)
         charsetB = set(char for seq in seqlistB for char in seq)
         alphabet = charsetA | charsetB
-        alphabet = ''.join(alphabet)
+        alphabet = ''.join(sorted(alphabet))
 
     if verbose:
         print('Alphabet:')
