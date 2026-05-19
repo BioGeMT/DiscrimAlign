@@ -34,6 +34,7 @@ def estimalign(seqlistA, seqlistB,
                max_iter=1000, tol=1e-3,
                num_threads = 1,
                subgradient_scale=1.0,
+               initial_parameters=None,
                return_alignments=True,
                verbose=False):
     ### TOOD: Implement tol, 
@@ -89,11 +90,14 @@ def estimalign(seqlistA, seqlistB,
     alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
     alignment_scores = [aln.score for aln in alnlist]
     
-    # Initial logistic estimation
-    updated_parameters = get_initial_estimate(alnlist, labels,
-                                              substitution_mode = substitution_mode,
-                                              gap_mode =gap_mode,
-                                              alphabet=alphabet)
+    # Initial logistic estimation, unless caller provides fitted parameters for a warm start.
+    if initial_parameters is not None:
+        updated_parameters = deepcopy(initial_parameters)
+    else:
+        updated_parameters = get_initial_estimate(alnlist, labels,
+                                                  substitution_mode = substitution_mode,
+                                                  gap_mode =gap_mode,
+                                                  alphabet=alphabet)
     if verbose:
         print('Initial parameters:')
         print(updated_parameters)
