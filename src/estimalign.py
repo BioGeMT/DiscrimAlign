@@ -7,19 +7,45 @@ import numpy as np
 from numpy import random as rd
 from scipy.optimize import minimize
 from copy import deepcopy
+from math import ceil
 from .optimization import get_initial_estimate, get_first_alignment
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 
+def _align_pair_chunk(pair_chunk, aligner):
+    """Align a chunk of sequence pairs in one joblib task.
+
+    Dispatching one pair per task creates substantial scheduling overhead when
+    this function is called at every optimization iteration. Chunking keeps the
+    returned alignment order stable while reducing per-iteration joblib overhead.
+    """
+    return [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in pair_chunk]
+
+
+def _pair_chunks(seqlistA, seqlistB, chunk_size):
+    pair_count = len(seqlistA)
+    for start in range(0, pair_count, chunk_size):
+        stop = min(start + chunk_size, pair_count)
+        yield list(zip(seqlistA[start:stop], seqlistB[start:stop]))
+
+
 def _align_pairs(seqlistA, seqlistB, aligner, num_threads):
-    if num_threads == 1:
+    pair_count = len(seqlistA)
+    if num_threads == 1 or pair_count == 0:
         return [get_first_alignment(seqA, seqB, aligner) for seqA, seqB in zip(seqlistA, seqlistB)]
 
-    from joblib import Parallel
-    from .optimization import create_alignment_workers
+    from joblib import Parallel, delayed
 
-    parallel = Parallel(n_jobs=num_threads, return_as='list')
-    return parallel(create_alignment_workers(seqlistA, seqlistB, aligner))
+    n_jobs = min(int(num_threads), pair_count)
+    # Aim for a few chunks per worker so the work is balanced, without creating
+    # one joblib task per sequence pair at every fitting iteration.
+    chunk_size = max(1, ceil(pair_count / (n_jobs * 4)))
+    parallel = Parallel(n_jobs=n_jobs, return_as='list')
+    chunked_alignments = parallel(
+        delayed(_align_pair_chunk)(pair_chunk, aligner)
+        for pair_chunk in _pair_chunks(seqlistA, seqlistB, chunk_size)
+    )
+    return [alignment for chunk in chunked_alignments for alignment in chunk]
 
 
 def estimalign(seqlistA, seqlistB,
