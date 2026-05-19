@@ -196,6 +196,7 @@ def parse_args():
     parser.add_argument("--config-workers", type=int, default=1)
     parser.add_argument("--limit-configs", type=int, default=0)
     parser.add_argument("--warm-start-model", default="", help="Optional path to a saved model.pkl artifact to continue fitting from.")
+    parser.add_argument("--skip-evaluation", action="store_true", help="Fit and save model artifacts without scoring evaluation splits or making PR/ROC curves.")
     return parser.parse_args()
 
 
@@ -209,14 +210,17 @@ def prepare_inputs(frame):
 def load_frames(args):
     if args.dataset_split:
         frame = get_dataset_dataframe(args.dataset_split).reset_index(drop=True)
-        return args.dataset_split, frame, frame, frame, {args.dataset_split: frame}
+        return args.dataset_split, frame, frame, frame, {} if args.skip_evaluation else {args.dataset_split: frame}
     train_alias, default_test_alias = PAIRED_DATASET_SPLITS[args.dataset]
     train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
-    split_names = csv_values(args.eval_splits) if args.eval_splits else [default_test_alias]
-    invalid = [name for name in split_names if name not in SUPPORTED_DATASET_SPLITS]
-    if invalid:
-        raise ValueError(f"Invalid evaluation split aliases: {invalid}")
-    evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
+    if args.skip_evaluation:
+        evaluation_frames = {}
+    else:
+        split_names = csv_values(args.eval_splits) if args.eval_splits else [default_test_alias]
+        invalid = [name for name in split_names if name not in SUPPORTED_DATASET_SPLITS]
+        if invalid:
+            raise ValueError(f"Invalid evaluation split aliases: {invalid}")
+        evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
     fit_frame, validation_frame = train_test_split(
         train_frame,
         test_size=args.validation_fraction,
@@ -288,12 +292,16 @@ def build_config(dataset_label, index, values, num_threads, warm_start_model="")
     return config
 
 
-def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir):
+def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir, skip_evaluation=False):
     print(f"Starting {index}/{total_configs}: {config['config']}", flush=True)
     try:
         result, runtime = fit_configuration(fit_inputs, config)
         row = summarize_result(config, result, runtime)
-        updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
+        if skip_evaluation:
+            row["evaluation_skipped"] = True
+            updates, metrics, pr_points, roc_points = {}, [], [], []
+        else:
+            updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
         row.update(updates)
         trajectories = build_trajectory_rows(config, result)
         artifact_paths = export_model_artifacts(result, config, row, trajectories, run_dir / "model_artifacts" / config["config"])
@@ -311,6 +319,8 @@ def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split,
         }
     except Exception as exc:
         row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan}
+        if skip_evaluation:
+            row["evaluation_skipped"] = True
         log_summary_row(row)
         print(f"Completed {index}/{total_configs}: error", flush=True)
         print(f"  {row['error']}", flush=True)
@@ -334,7 +344,7 @@ def main():
     fit_inputs = prepare_inputs(fit_frame)
     validation_inputs = prepare_inputs(validation_frame)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
-    inputs_by_split = {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
+    inputs_by_split = {} if args.skip_evaluation else {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
     grid = list(product(csv_values(args.aligner_modes), csv_values(args.gap_modes), csv_values(args.substitution_modes), csv_values(args.stepfunctions), [float(v) for v in csv_values(args.step_scales)], [int(v) for v in csv_values(args.max_iters)]))
     if args.limit_configs:
         grid = grid[: args.limit_configs]
@@ -343,12 +353,12 @@ def main():
     configs = [build_config(dataset_label, index, values, args.num_threads, args.warm_start_model) for index, values in enumerate(grid, start=1)]
     if args.config_workers == 1:
         results = [
-            run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir)
+            run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir, skip_evaluation=args.skip_evaluation)
             for index, config in enumerate(configs, start=1)
         ]
     else:
         results = Parallel(n_jobs=args.config_workers, return_as="list")(
-            delayed(run_configuration)(index, len(configs), config, fit_inputs, inputs_by_split, run_dir)
+            delayed(run_configuration)(index, len(configs), config, fit_inputs, inputs_by_split, run_dir, args.skip_evaluation)
             for index, config in enumerate(configs, start=1)
         )
     for result in results:
@@ -358,13 +368,13 @@ def main():
         pr_rows.extend(result["pr_points"])
         roc_rows.extend(result["roc_points"])
         trajectory_rows.extend(result["trajectories"])
-    objective = "final_loglik" if args.selection_objective == "auto" and args.dataset_split else args.selection_objective.replace("validation_ap", "validation_ap")
+    objective = "final_loglik" if (args.skip_evaluation or args.selection_objective == "auto" and args.dataset_split) else args.selection_objective.replace("validation_ap", "validation_ap")
     ranked = rank_successful(summary_rows, objective)
     if ranked:
         best = ranked[0]
         copy_artifact_dir(best.get("model_artifact_dir", ""), run_dir / "best_grid_model")
         write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best})
-    if ranked and args.final_max_iter > 0:
+    if ranked and args.final_max_iter > 0 and not args.skip_evaluation:
         best = ranked[0]
         final_config = {key: best[key] for key in ["dataset", "aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale", "num_threads"]}
         if args.warm_start_model:
