@@ -50,6 +50,13 @@ def json_safe(value):
     return value
 
 
+def aligner_attr_or_none(aligner, name: str):
+    try:
+        return getattr(aligner, name)
+    except Exception:
+        return None
+
+
 def write_json(path: str | Path, payload: dict) -> None:
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -86,17 +93,17 @@ def gap_scores_payload(config: dict, row: dict) -> dict:
 
 def model_parameters(result: dict, config: dict, row: dict) -> dict:
     aligner = result["aligner"]
-    substitution_matrix = result.get("substitution_matrix", getattr(aligner, "substitution_matrix", None))
+    substitution_matrix = result.get("substitution_matrix", aligner_attr_or_none(aligner, "substitution_matrix"))
     return {
         "config": config,
         "summary": row,
         "alpha": result.get("alpha"),
         "final_loglik": result.get("final_loglik"),
-        "aligner_mode": getattr(aligner, "mode", None),
+        "aligner_mode": aligner_attr_or_none(aligner, "mode"),
         "gap_scores": gap_scores_payload(config, row),
         "simple_substitution_scores": {
-            "match_score": getattr(aligner, "match_score", None),
-            "mismatch_score": getattr(aligner, "mismatch_score", None),
+            "match_score": aligner_attr_or_none(aligner, "match_score"),
+            "mismatch_score": aligner_attr_or_none(aligner, "mismatch_score"),
         },
         "substitution_matrix": substitution_matrix_payload(substitution_matrix),
     }
@@ -188,6 +195,7 @@ def parse_args():
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--config-workers", type=int, default=1)
     parser.add_argument("--limit-configs", type=int, default=0)
+    parser.add_argument("--warm-start-model", default="", help="Optional path to a saved model.pkl artifact to continue fitting from.")
     return parser.parse_args()
 
 
@@ -260,10 +268,10 @@ def evaluate_model(config, result, inputs_by_split, run_dir):
     return updates, metrics, pr_points, roc_points
 
 
-def build_config(dataset_label, index, values, num_threads):
+def build_config(dataset_label, index, values, num_threads, warm_start_model=""):
     aligner_mode, gap_mode, substitution_mode, stepfunction, step_scale, max_iter = values
     config_name = f"cfg_{index:04d}_{aligner_mode}_{gap_mode}_{substitution_mode}_{stepfunction}_s{step_scale}_i{max_iter}"
-    return {
+    config = {
         "dataset": dataset_label,
         "config_index": index,
         "config": config_name,
@@ -275,6 +283,9 @@ def build_config(dataset_label, index, values, num_threads):
         "max_iter": max_iter,
         "num_threads": num_threads,
     }
+    if warm_start_model:
+        config["warm_start_model"] = warm_start_model
+    return config
 
 
 def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir):
@@ -329,7 +340,7 @@ def main():
         grid = grid[: args.limit_configs]
     summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
     print(f"Running {len(grid)} configurations...", flush=True)
-    configs = [build_config(dataset_label, index, values, args.num_threads) for index, values in enumerate(grid, start=1)]
+    configs = [build_config(dataset_label, index, values, args.num_threads, args.warm_start_model) for index, values in enumerate(grid, start=1)]
     if args.config_workers == 1:
         results = [
             run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir)
@@ -356,6 +367,8 @@ def main():
     if ranked and args.final_max_iter > 0:
         best = ranked[0]
         final_config = {key: best[key] for key in ["dataset", "aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale", "num_threads"]}
+        if args.warm_start_model:
+            final_config["warm_start_model"] = args.warm_start_model
         final_config.update({"config_index": 0, "config": f"final_refit_{best['config']}", "max_iter": args.final_max_iter})
         result, runtime = fit_configuration(train_inputs, final_config)
         final_row = summarize_result(final_config, result, runtime)
