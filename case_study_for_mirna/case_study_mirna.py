@@ -5,6 +5,7 @@ import json
 import pickle
 import shutil
 import sys
+import time
 from itertools import product
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from case_study_for_mirna.scoring import evaluate_probabilities, score_pairs_wit
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
 SUPPORTED_DATASET_SPLITS = ["hejret_train", "hejret_test", "manakov_train", "manakov_test", "manakov_leftout", "klimentova_test"]
 REQUIRED_EVALUATION_COLUMNS = ["noncodingRNA", "gene", "label"]
+MODEL_CONFIG_KEYS = ["aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale"]
 
 
 def csv_values(raw: str) -> list[str]:
@@ -222,7 +224,7 @@ def load_custom_evaluation_frames(raw_eval_files: str | None) -> dict[str, pd.Da
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run the DiscrimAlign miRNA case-study grid.")
+    parser = argparse.ArgumentParser(description="Run the DiscrimAlign miRNA case-study workflow.")
     parser.add_argument("--dataset", default="hejret", choices=sorted(PAIRED_DATASET_SPLITS))
     parser.add_argument("--dataset-split", default=None, choices=SUPPORTED_DATASET_SPLITS)
     parser.add_argument("--eval-splits", default=None, help="Comma-separated miRBench evaluation split aliases.")
@@ -250,8 +252,23 @@ def parse_args():
     parser.add_argument("--config-workers", type=int, default=1)
     parser.add_argument("--limit-configs", type=int, default=0)
     parser.add_argument("--warm-start-model", default="", help="Optional path to a saved model.pkl artifact to continue fitting from.")
+    parser.add_argument("--trained-model", default="", help="Path to a trained model.pkl artifact for evaluation-only use.")
+    parser.add_argument("--evaluate-only", action="store_true", help="Load --trained-model and evaluate it without fitting.")
     parser.add_argument("--skip-evaluation", action="store_true", help="Fit and save model artifacts without scoring evaluation splits or making PR/ROC curves.")
-    return parser.parse_args()
+    args = parser.parse_args()
+    if args.trained_model:
+        if args.warm_start_model and Path(args.warm_start_model) != Path(args.trained_model):
+            raise ValueError("Use either --trained-model or --warm-start-model, not both with different paths.")
+        args.warm_start_model = args.trained_model
+        args.evaluate_only = True
+    if args.evaluate_only:
+        if not args.warm_start_model:
+            raise ValueError("--evaluate-only requires --trained-model or --warm-start-model.")
+        args.skip_evaluation = False
+        args.max_iters = "0"
+        args.final_max_iter = 0
+        args.config_workers = 1
+    return args
 
 
 def prepare_inputs(frame):
@@ -264,15 +281,14 @@ def prepare_inputs(frame):
 def load_frames(args):
     custom_evaluation_frames = {} if args.skip_evaluation else load_custom_evaluation_frames(args.eval_files)
     if args.dataset_split:
-        frame = get_dataset_dataframe(args.dataset_split).reset_index(drop=True)
+        frame = pd.DataFrame(columns=REQUIRED_EVALUATION_COLUMNS) if args.evaluate_only else get_dataset_dataframe(args.dataset_split).reset_index(drop=True)
         if args.skip_evaluation:
             evaluation_frames = {}
         else:
-            evaluation_frames = {args.dataset_split: frame, **custom_evaluation_frames}
+            evaluation_frames = {args.dataset_split: get_dataset_dataframe(args.dataset_split).reset_index(drop=True), **custom_evaluation_frames}
         return args.dataset_split, frame, frame, frame, evaluation_frames
 
     train_alias, default_test_alias = PAIRED_DATASET_SPLITS[args.dataset]
-    train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
     if args.skip_evaluation:
         evaluation_frames = {}
     else:
@@ -285,6 +301,11 @@ def load_frames(args):
         if overlap:
             raise ValueError(f"Custom evaluation names duplicate miRBench split names: {overlap}")
         evaluation_frames.update(custom_evaluation_frames)
+    if args.evaluate_only:
+        empty_frame = pd.DataFrame(columns=REQUIRED_EVALUATION_COLUMNS)
+        return args.dataset, empty_frame, empty_frame, empty_frame, evaluation_frames
+
+    train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
     fit_frame, validation_frame = train_test_split(
         train_frame,
         test_size=args.validation_fraction,
@@ -356,6 +377,107 @@ def build_config(dataset_label, index, values, num_threads, warm_start_model="")
     return config
 
 
+def load_model_payload(model_path: str | Path) -> dict:
+    model_path = Path(model_path)
+    with model_path.open("rb") as handle:
+        payload = pickle.load(handle)
+    if "aligner" not in payload:
+        raise ValueError(f"Model file {model_path} does not contain an aligner.")
+    return payload
+
+
+def value_from_payload(payload: dict, key: str):
+    return payload.get("config", {}).get(key, payload.get("summary", {}).get(key))
+
+
+def build_trained_model_config(dataset_label: str, model_path: str | Path, num_threads: int) -> dict:
+    payload = load_model_payload(model_path)
+    missing = [key for key in MODEL_CONFIG_KEYS if value_from_payload(payload, key) is None]
+    if missing:
+        raise ValueError(f"Trained model {model_path} is missing configuration fields: {missing}")
+    return {
+        "dataset": dataset_label,
+        "config_index": 1,
+        "config": f"evaluate_{Path(model_path).stem}",
+        "aligner_mode": value_from_payload(payload, "aligner_mode"),
+        "gap_mode": value_from_payload(payload, "gap_mode"),
+        "substitution_mode": value_from_payload(payload, "substitution_mode"),
+        "stepfunction": value_from_payload(payload, "stepfunction"),
+        "step_scale": float(value_from_payload(payload, "step_scale")),
+        "max_iter": 0,
+        "num_threads": num_threads,
+        "trained_model": str(model_path),
+        "warm_start_model": str(model_path),
+        "evaluation_only": True,
+    }
+
+
+def result_from_trained_model(payload: dict) -> dict:
+    summary = payload.get("summary", {})
+    alpha = summary.get("alpha", payload.get("alpha"))
+    if alpha is None:
+        raise ValueError("Trained model payload does not contain alpha in its summary.")
+    return {
+        "aligner": payload["aligner"],
+        "alpha": alpha,
+        "final_loglik": summary.get("final_loglik", np.nan),
+        "loglik_trajectory": [],
+        "subgradient_l2_trajectory": [],
+    }
+
+
+def summarize_trained_model(config: dict, payload: dict, runtime_seconds: float) -> dict:
+    summary = dict(payload.get("summary", {}))
+    row = {**summary, **config}
+    row.update(
+        {
+            "status": "ok",
+            "error": "",
+            "runtime_seconds": round(runtime_seconds, 3),
+            "iterations_completed": 0,
+            "evaluation_only": True,
+            "trained_model": config["trained_model"],
+        }
+    )
+    return row
+
+
+def run_trained_model_evaluation(index, total_configs, config, inputs_by_split, run_dir):
+    print(f"Starting {index}/{total_configs}: {config['config']}", flush=True)
+    start_time = time.perf_counter()
+    try:
+        payload = load_model_payload(config["trained_model"])
+        result = result_from_trained_model(payload)
+        row = summarize_trained_model(config, payload, time.perf_counter() - start_time)
+        updates, metrics, pr_points, roc_points = evaluate_model(config, result, inputs_by_split, run_dir)
+        row.update(updates)
+        artifact_paths = export_model_artifacts(result, config, row, [], run_dir / "model_artifacts" / config["config"])
+        row.update(artifact_paths)
+        log_summary_row(row)
+        print(f"Completed {index}/{total_configs}: ok", flush=True)
+        return {
+            "summary": row,
+            "errors": [],
+            "metrics": metrics,
+            "pr_points": pr_points,
+            "roc_points": roc_points,
+            "trajectories": [],
+        }
+    except Exception as exc:
+        row = {**config, "status": "error", "error": repr(exc), "final_loglik": np.nan, "evaluation_only": True}
+        log_summary_row(row)
+        print(f"Completed {index}/{total_configs}: error", flush=True)
+        print(f"  {row['error']}", flush=True)
+        return {
+            "summary": row,
+            "errors": [row],
+            "metrics": [],
+            "pr_points": [],
+            "roc_points": [],
+            "trajectories": [],
+        }
+
+
 def run_configuration(index, total_configs, config, fit_inputs, inputs_by_split, run_dir, skip_evaluation=False):
     print(f"Starting {index}/{total_configs}: {config['config']}", flush=True)
     try:
@@ -408,14 +530,20 @@ def main():
     fit_inputs = prepare_inputs(fit_frame)
     validation_inputs = prepare_inputs(validation_frame)
     evaluation_inputs = {name: prepare_inputs(frame) for name, frame in evaluation_frames.items()}
-    inputs_by_split = {} if args.skip_evaluation else {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
-    grid = list(product(csv_values(args.aligner_modes), csv_values(args.gap_modes), csv_values(args.substitution_modes), csv_values(args.stepfunctions), [float(v) for v in csv_values(args.step_scales)], [int(v) for v in csv_values(args.max_iters)]))
-    if args.limit_configs:
-        grid = grid[: args.limit_configs]
+    if args.evaluate_only:
+        inputs_by_split = evaluation_inputs
+        configs = [build_trained_model_config(dataset_label, args.warm_start_model, args.num_threads)]
+    else:
+        inputs_by_split = {} if args.skip_evaluation else {"fit": fit_inputs, "validation": validation_inputs, **evaluation_inputs}
+        grid = list(product(csv_values(args.aligner_modes), csv_values(args.gap_modes), csv_values(args.substitution_modes), csv_values(args.stepfunctions), [float(v) for v in csv_values(args.step_scales)], [int(v) for v in csv_values(args.max_iters)]))
+        if args.limit_configs:
+            grid = grid[: args.limit_configs]
+        configs = [build_config(dataset_label, index, values, args.num_threads, args.warm_start_model) for index, values in enumerate(grid, start=1)]
     summary_rows, error_rows, metric_rows, pr_rows, roc_rows, trajectory_rows = [], [], [], [], [], []
-    print(f"Running {len(grid)} configurations...", flush=True)
-    configs = [build_config(dataset_label, index, values, args.num_threads, args.warm_start_model) for index, values in enumerate(grid, start=1)]
-    if args.config_workers == 1:
+    print(f"Running {len(configs)} configurations...", flush=True)
+    if args.evaluate_only:
+        results = [run_trained_model_evaluation(index, len(configs), config, inputs_by_split, run_dir) for index, config in enumerate(configs, start=1)]
+    elif args.config_workers == 1:
         results = [
             run_configuration(index, len(configs), config, fit_inputs, inputs_by_split, run_dir, skip_evaluation=args.skip_evaluation)
             for index, config in enumerate(configs, start=1)
@@ -437,8 +565,8 @@ def main():
     if ranked:
         best = ranked[0]
         copy_artifact_dir(best.get("model_artifact_dir", ""), run_dir / "best_grid_model")
-        write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "grid", "summary": best})
-    if ranked and args.final_max_iter > 0 and not args.skip_evaluation:
+        write_json(run_dir / "best_grid_model" / "selected_summary.json", {"selected_from": "trained_model" if args.evaluate_only else "grid", "summary": best})
+    if ranked and args.final_max_iter > 0 and not args.skip_evaluation and not args.evaluate_only:
         best = ranked[0]
         final_config = {key: best[key] for key in ["dataset", "aligner_mode", "gap_mode", "substitution_mode", "stepfunction", "step_scale", "num_threads"]}
         if args.warm_start_model:
