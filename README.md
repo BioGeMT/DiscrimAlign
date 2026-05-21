@@ -8,8 +8,7 @@ DiscrimAlign is a research codebase for discriminatively learning alignment para
 src/                                      Core DiscrimAlign implementation
 Simulation experiments.ipynb               Simulation experiments for the manuscript
 pyproject.toml                             Project environment managed by uv
-case_study_for_mirna/                      miRNA case-study workflow
-case_study_for_mirna/trained_models/       Selected miRNA models and evaluation instructions
+case_study_for_mirna/                      miRNA case-study workflow, trained models, and evaluation instructions
 ```
 
 ## Requirements
@@ -107,100 +106,8 @@ Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib
 
 ## miRNA case study
 
-The miRNA case study is contained in:
+The manuscript-aligned miRNA case study, bundled trained models, and instructions for reproducing the reported evaluation metrics are documented in:
 
 ```text
-case_study_for_mirna/
+case_study_for_mirna/README.md
 ```
-
-The repository includes selected trained miRNA models used in the manuscript under:
-
-```text
-case_study_for_mirna/trained_models/
-```
-
-These bundled models allow readers to reproduce the reported AUPRC metrics on the manuscript evaluation sets without rerunning model fitting.
-
-### Reproduce manuscript metrics from bundled models
-
-Use the bundled `model.pkl` artifacts with `--warm-start-model` and `--max-iters 0`. This loads the trained model and evaluates it on the requested datasets.
-
-Hejret-trained selected model:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset hejret \
-  --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
-  --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/hejret_selected_model/model.pkl \
-  --run-tag manuscript_hejret_model_eval
-```
-
-Manakov-trained selected model:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset manakov \
-  --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
-  --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
-  --run-tag manuscript_manakov_model_eval
-```
-
-Key output files are written under `results/case_study_for_mirna/<dataset>_<run-tag>/`:
-
-```text
-summary.csv
-metrics.csv
-pr_points.csv
-roc_points.csv
-best_grid_model/selected_summary.json
-```
-
-### Evaluate user-provided evaluation sets
-
-In addition to miRBench aliases passed through `--eval-splits`, users can provide their own CSV or TSV evaluation files with `--eval-files`. Each file must contain:
-
-```text
-noncodingRNA,gene,label
-```
-
-The `gene` column should contain the target sequence before reverse complementing. The script reverse-complements it internally to match the manuscript workflow.
-
-Example:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset manakov \
-  --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --eval-files external_set=path/to/external_set.tsv \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
-  --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
-  --run-tag manuscript_manakov_model_external_eval
-```
-
-The evaluation commands write one metrics table per run and store precision-recall and ROC curve points for each evaluated split.
