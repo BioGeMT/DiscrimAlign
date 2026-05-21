@@ -1,38 +1,22 @@
 # Trained miRNA models
 
-This directory is reserved for the trained DiscrimAlign miRNA models used in the manuscript. The repository should include the selected fitted models so that readers can reproduce the reported evaluation metrics without rerunning the full grid search or long continuation fits.
+This directory contains the selected trained DiscrimAlign miRNA models used in the manuscript. These models are included for reproducibility and for reporting AUPRC metrics on the manuscript evaluation sets.
 
-## Expected layout
+## Model files
 
 ```text
 case_study_for_mirna/trained_models/
-  hejret_selected_model/
-    model.pkl
-    model_parameters.json
-    selected_summary.json
-  manakov_selected_model/
-    model.pkl
-    model_parameters.json
-    selected_summary.json
+  hejret_best_model.pkl
+  manakov_best_model.pkl
 ```
 
-The model directories should be copied from the corresponding `best_grid_model/` directories produced by `case_study_mirna.py`. For example:
+If the `model.pkl` files are stored with Git LFS, make sure Git LFS files have been pulled before running evaluation.
 
-```bash
-mkdir -p case_study_for_mirna/trained_models
-cp -r results/case_study_for_mirna/<hejret-run>/best_grid_model \
-  case_study_for_mirna/trained_models/hejret_selected_model
-cp -r results/case_study_for_mirna/<manakov-run>/best_grid_model \
-  case_study_for_mirna/trained_models/manakov_selected_model
-```
-
-If the `model.pkl` files are large, store them with Git LFS rather than regular Git blobs.
-
-## Reproducing manuscript metrics from bundled models
+## Reproduce manuscript metrics
 
 The case-study CLI can evaluate a saved model without additional fitting by combining `--warm-start-model` with `--max-iters 0`. The evaluation sets may come from miRBench aliases via `--eval-splits` or from user-provided CSV/TSV files via `--eval-files`.
 
-### Evaluate the bundled Hejret-trained model on miRBench splits
+### Hejret-trained selected model
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
@@ -47,11 +31,11 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/hejret_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/hejret_best_model.pkl \
   --run-tag manuscript_hejret_model_eval
 ```
 
-### Evaluate the bundled Manakov-trained model on miRBench splits
+### Manakov-trained selected model
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
@@ -66,7 +50,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_eval
 ```
 
@@ -80,7 +64,7 @@ roc_points.csv
 best_grid_model/selected_summary.json
 ```
 
-## Evaluating user-provided datasets
+## Evaluate user-provided datasets
 
 User-provided evaluation sets must be CSV or TSV files with these columns:
 
@@ -108,7 +92,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_external_eval
 ```
 
