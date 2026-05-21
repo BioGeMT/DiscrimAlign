@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from src.estimalign import estimalign
+from src.discrimalign import discrimalign
 from src.optimization import create_constant_step, create_powerstep
 
 SKLEARN_PENALTY_WARNING = "'penalty' was deprecated in version 1.8"
@@ -78,7 +78,7 @@ def fit_configuration(fit_inputs, config: dict):
             category=FutureWarning,
             module="sklearn.linear_model._logistic",
         )
-        result = estimalign(
+        result = discrimalign(
             seqlistA=fit_inputs[0],
             seqlistB=fit_inputs[1],
             labels=fit_inputs[2],
