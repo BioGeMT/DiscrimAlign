@@ -1,11 +1,11 @@
-# EstimAlign
+# DiscrimAlign
 
-EstimAlign is a research codebase for estimating alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, and a miRNA case-study workflow.
+DiscrimAlign is a research codebase for discriminatively learning alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, and a miRNA case-study workflow.
 
 ## Repository structure
 
 ```text
-src/                          Core EstimAlign implementation
+src/                          Core DiscrimAlign implementation
 Simulation experiments.ipynb   Simulation experiments for the manuscript
 pyproject.toml                 Project environment managed by uv
 case_study_for_mirna/          miRNA case-study workflow and manuscript-result runs
@@ -77,18 +77,18 @@ uv run jupyter lab "Simulation experiments.ipynb"
 
 With the Python and Jupyter extensions installed, open `Simulation experiments.ipynb` and select the kernel associated with the local `.venv/` environment.
 
-## Core EstimAlign usage
+## Core DiscrimAlign usage
 
-The main function is `estimalign` from `src.estimalign`.
+The main function is `discrimalign` from `src.discrimalign`.
 
 ```python
-from src.estimalign import estimalign
+from src.discrimalign import discrimalign
 
 seqlistA = ["AUGCUA", "CUGA"]
 seqlistB = ["AUGGUA", "CUGU"]
 labels = [1, 0]
 
-result = estimalign(
+result = discrimalign(
     seqlistA=seqlistA,
     seqlistB=seqlistB,
     labels=labels,
@@ -104,7 +104,7 @@ print(result["alpha"])
 
 The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
 
-Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib task processes a chunk of sequence pairs rather than a single pair, which reduces scheduler overhead across repeated optimization iterations while preserving alignment order.
+Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib task processes a chunk of sequence pairs rather than a single pair, which reduces scheduler overhead across repeated optimization iterations while preserving alignment order. Thread-based joblib workers are used for the chunked alignment tasks.
 
 ## miRNA case study
 
@@ -128,11 +128,11 @@ The script
 case_study_for_mirna/run_mirna_auprc_table.py
 ```
 
-contains the miRNA runs used to reproduce the corresponding results reported in the manuscript. It trains once on the Hejret family and once on the Manakov family, evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
+contains a convenience workflow for running the miRNA grid on the Hejret and Manakov training families and evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
 
-The manuscript-result workflow uses 100 grid-search iterations and a 1000-iteration final refit of the selected configuration.
+The manuscript-result values in the current draft were generated with explicit case-study CLI runs, including grid-search runs, warm-start continuation, train-only runs with `--skip-evaluation`, and evaluation-only runs with `--max-iters 0`. The exact commands should be recorded with the generated run directories under `results/case_study_for_mirna/`.
 
-Run the manuscript-result workflow from the repository root:
+Run the convenience workflow from the repository root:
 
 ```bash
 uv run python case_study_for_mirna/run_mirna_auprc_table.py
