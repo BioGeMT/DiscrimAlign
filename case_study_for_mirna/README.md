@@ -41,24 +41,17 @@ If the model files are stored with Git LFS, make sure Git LFS files have been pu
 
 ## Reproduce manuscript metrics
 
-Use the trained model artifacts with `--warm-start-model` and `--max-iters 0`. This loads the model and evaluates it on the requested datasets.
+Use `--evaluate-only` with `--trained-model` to load a trained model and evaluate it on the requested datasets.
 
 ### Hejret-trained selected model
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
+  --evaluate-only \
+  --trained-model case_study_for_mirna/trained_models/hejret_best_model.pkl \
   --dataset hejret \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
   --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/hejret_best_model.pkl \
   --run-tag manuscript_hejret_model_eval
 ```
 
@@ -66,18 +59,11 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
+  --evaluate-only \
+  --trained-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
   --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_eval
 ```
 
@@ -111,19 +97,12 @@ Example:
 
 ```bash
 uv run python case_study_for_mirna/case_study_mirna.py \
+  --evaluate-only \
+  --trained-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --dataset manakov \
   --eval-splits hejret_test,manakov_test,manakov_leftout \
   --eval-files external_set=path/to/external_set.tsv \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 0 \
-  --final-max-iter 0 \
   --num-threads 8 \
-  --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_external_eval
 ```
 
