@@ -1,14 +1,14 @@
 # DiscrimAlign
 
-DiscrimAlign is a research codebase for discriminatively learning alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, a stable `uv` environment, and a manuscript-aligned miRNA case study with bundled trained models.
+DiscrimAlign is a research codebase for discriminatively learning alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, a stable `uv` environment, and a manuscript-aligned miRNA case study.
 
 ## Repository structure
 
 ```text
-src/                                      Core DiscrimAlign implementation
-Simulation experiments.ipynb               Simulation experiments for the manuscript
-pyproject.toml                             Project environment managed by uv
-case_study_for_mirna/                      miRNA case-study workflow, trained models, and evaluation instructions
+src/                         Core DiscrimAlign implementation
+Simulation experiments.ipynb  Simulation experiments for the manuscript
+pyproject.toml                Project environment managed by uv
+case_study_for_mirna/         miRNA case study, trained models, and evaluation instructions
 ```
 
 ## Requirements
@@ -106,7 +106,7 @@ Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib
 
 ## miRNA case study
 
-The manuscript-aligned miRNA case study, bundled trained models, and instructions for reproducing the reported evaluation metrics are documented in:
+The miRNA case study, trained models, and instructions for reproducing the manuscript AUPRC metrics are documented in:
 
 ```text
 case_study_for_mirna/README.md
