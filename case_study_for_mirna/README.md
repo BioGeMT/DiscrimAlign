@@ -1,6 +1,6 @@
 # miRNA case study
 
-This directory contains the manuscript-aligned miRNA case-study workflow for DiscrimAlign. It includes the scripts used to evaluate trained DiscrimAlign models on the miRBench evaluation splits and on user-provided evaluation files.
+This directory contains the manuscript-aligned miRNA case study for DiscrimAlign. It includes trained models and scripts for reporting AUPRC metrics on the miRBench evaluation splits and on user-provided evaluation files.
 
 The selected trained models used in the manuscript are stored under:
 
@@ -37,11 +37,11 @@ case_study_for_mirna/trained_models/
   manakov_best_model.pkl
 ```
 
-If the `model.pkl` files are stored with Git LFS, make sure Git LFS files have been pulled before running evaluation.
+If the model files are stored with Git LFS, make sure Git LFS files have been pulled before running evaluation.
 
 ## Reproduce manuscript metrics
 
-Use the bundled model artifacts with `--warm-start-model` and `--max-iters 0`. This loads the trained model and evaluates it on the requested datasets.
+Use the trained model artifacts with `--warm-start-model` and `--max-iters 0`. This loads the model and evaluates it on the requested datasets.
 
 ### Hejret-trained selected model
 
