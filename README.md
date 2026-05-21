@@ -1,6 +1,6 @@
 # DiscrimAlign
 
-DiscrimAlign is a research codebase for discriminatively learning alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, a stable `uv` environment, and a miRNA case-study workflow aligned with the manuscript.
+DiscrimAlign is a research codebase for discriminatively learning alignment parameters from labelled pairs of biological sequences. The repository contains the core implementation of the method, the simulation experiments used in the manuscript, a stable `uv` environment, and a manuscript-aligned miRNA case study with bundled trained models.
 
 ## Repository structure
 
@@ -8,11 +8,9 @@ DiscrimAlign is a research codebase for discriminatively learning alignment para
 src/                                      Core DiscrimAlign implementation
 Simulation experiments.ipynb               Simulation experiments for the manuscript
 pyproject.toml                             Project environment managed by uv
-case_study_for_mirna/                      miRNA case-study workflow and manuscript-result runs
-case_study_for_mirna/trained_models/       Bundled selected miRNA models and evaluation instructions
+case_study_for_mirna/                      miRNA case-study workflow
+case_study_for_mirna/trained_models/       Selected miRNA models and evaluation instructions
 ```
-
-The miRNA case-study workflow uses `miRBench` for dataset access and writes its outputs to `results/case_study_for_mirna/`.
 
 ## Requirements
 
@@ -109,23 +107,23 @@ Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib
 
 ## miRNA case study
 
-The miRNA workflow is contained in:
+The miRNA case study is contained in:
 
 ```text
 case_study_for_mirna/
 ```
 
-Dataset access is handled through the `miRBench` package during the run. The repository is intended to include the selected trained miRNA models used in the manuscript under:
+The repository includes selected trained miRNA models used in the manuscript under:
 
 ```text
 case_study_for_mirna/trained_models/
 ```
 
-Those bundled models allow readers to reproduce the reported AUPRC metrics on the manuscript evaluation sets without rerunning the full grid search or long continuation fits.
+These bundled models allow readers to reproduce the reported AUPRC metrics on the manuscript evaluation sets without rerunning model fitting.
 
 ### Reproduce manuscript metrics from bundled models
 
-The preferred reproducibility path for the manuscript is model evaluation, not refitting. Use the bundled `model.pkl` artifacts with `--warm-start-model` and `--max-iters 0`.
+Use the bundled `model.pkl` artifacts with `--warm-start-model` and `--max-iters 0`. This loads the trained model and evaluates it on the requested datasets.
 
 Hejret-trained selected model:
 
@@ -205,98 +203,4 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --run-tag manuscript_manakov_model_external_eval
 ```
 
-### Rerun the fitting workflow
-
-Run a small two-configuration Hejret calculation:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py --dataset hejret --limit-configs 2 --max-iters 5 --final-max-iter 0 --num-threads 1
-```
-
-The script
-
-```text
-case_study_for_mirna/run_mirna_auprc_table.py
-```
-
-contains a convenience workflow for running the miRNA grid on the Hejret and Manakov training families and evaluating each fitted model on `hejret_test`, `manakov_test`, and `manakov_leftout`.
-
-Run the convenience workflow from the repository root:
-
-```bash
-uv run python case_study_for_mirna/run_mirna_auprc_table.py
-```
-
-Case-study outputs are written to:
-
-```text
-results/case_study_for_mirna/
-```
-
-Each run directory contains grid summaries, metrics, curve points, trajectory files, model artifacts, and plots. Final-refit outputs are written under the corresponding `final_refit/` directory.
-
-### Warm-starting from a saved case-study model
-
-The miRNA case-study CLI can continue fitting from a saved `model.pkl` artifact by passing `--warm-start-model`. This is useful after a grid search has already selected a strong configuration and additional optimization iterations should start from the fitted aligner rather than from the default initialization.
-
-A saved model artifact is written for every successful grid configuration under:
-
-```text
-results/case_study_for_mirna/<run_name>/model_artifacts/<config_name>/model.pkl
-```
-
-The selected grid model is also copied to:
-
-```text
-results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl
-```
-
-Warm-start compatibility is checked against the requested `aligner_mode`, `gap_mode`, and `substitution_mode`. The continuation run should normally use the same configuration family as the saved model.
-
-Example: continue the selected Manakov local-affine-general model for 50 additional iterations:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset manakov \
-  --eval-splits hejret_test,manakov_test,manakov_leftout \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 50 \
-  --final-max-iter 0 \
-  --num-threads 80 \
-  --config-workers 1 \
-  --warm-start-model results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl \
-  --run-tag best_manakov_affine_general_warmstart_plus50_threads80
-```
-
-`--max-iters` is the number of additional subgradient iterations to run from the saved model. For example, if the saved model came from a 200-iteration run, `--max-iters 50` performs 50 more iterations from that fitted aligner rather than rerunning 250 iterations from scratch.
-
-The continuation run writes a new run directory, saves a new `model.pkl`, and copies the selected continuation model to its own `best_grid_model/` directory.
-
-### Train-only runs with skipped evaluation
-
-For long continuation runs, use `--skip-evaluation` to fit and save model artifacts without scoring `fit`, `validation`, or evaluation splits and without generating PR/ROC curves. This is useful when the training step is the bottleneck and full Manakov test scoring should be delayed until after a promising continuation model has been saved.
-
-Example: continue the selected Manakov model for 50 additional iterations and save the model without evaluation:
-
-```bash
-uv run python case_study_for_mirna/case_study_mirna.py \
-  --dataset manakov \
-  --aligner-modes local \
-  --gap-modes affine \
-  --substitution-modes general \
-  --stepfunctions constant \
-  --step-scales 0.0005 \
-  --max-iters 50 \
-  --final-max-iter 0 \
-  --num-threads 80 \
-  --config-workers 1 \
-  --warm-start-model results/case_study_for_mirna/<run_name>/best_grid_model/model.pkl \
-  --skip-evaluation \
-  --run-tag best_manakov_affine_general_warmstart_plus50_train_only
-```
-
-When evaluation is skipped, `summary.csv` still records the fitting summary, runtime, final log-likelihood, and model artifact paths. The selected train-only model is copied to `best_grid_model/` using final log-likelihood for ranking. A later run can evaluate the saved `best_grid_model/model.pkl` by using it as `--warm-start-model` with `--max-iters 0` and normal evaluation splits.
+The evaluation commands write one metrics table per run and store precision-recall and ROC curve points for each evaluated split.
