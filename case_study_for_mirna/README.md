@@ -8,14 +8,14 @@ The selected trained models used in the manuscript are stored under:
 case_study_for_mirna/trained_models/
 ```
 
-These bundled models allow readers to reproduce the reported AUPRC metrics without rerunning model fitting.
+These models are included for reproducibility and for reporting AUPRC metrics on the manuscript evaluation sets.
 
 ## Files
 
 - `case_study_mirna.py`: evaluates trained DiscrimAlign models and writes metrics, curve points, summaries, and model metadata.
 - `import_mirbench_datasets.py`: maps dataset aliases to the corresponding `miRBench` datasets.
 - `scoring.py`, `modeling.py`, and `outputs.py`: support model loading, scoring, output writing, and plotting for the case-study workflow.
-- `trained_models/`: selected trained models and model-specific metadata used for manuscript evaluation.
+- `trained_models/`: selected trained models used for manuscript evaluation.
 
 ## Environment
 
@@ -27,27 +27,21 @@ uv sync
 
 All commands below should be run from the repository root with `uv run`.
 
-## Trained model layout
+## Trained models
 
-The expected layout is:
+The trained models are stored as:
 
 ```text
 case_study_for_mirna/trained_models/
-  hejret_selected_model/
-    model.pkl
-    model_parameters.json
-    selected_summary.json
-  manakov_selected_model/
-    model.pkl
-    model_parameters.json
-    selected_summary.json
+  hejret_best_model.pkl
+  manakov_best_model.pkl
 ```
 
 If the `model.pkl` files are stored with Git LFS, make sure Git LFS files have been pulled before running evaluation.
 
 ## Reproduce manuscript metrics
 
-Use the bundled `model.pkl` artifacts with `--warm-start-model` and `--max-iters 0`. This loads the trained model and evaluates it on the requested datasets.
+Use the bundled model artifacts with `--warm-start-model` and `--max-iters 0`. This loads the trained model and evaluates it on the requested datasets.
 
 ### Hejret-trained selected model
 
@@ -64,7 +58,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/hejret_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/hejret_best_model.pkl \
   --run-tag manuscript_hejret_model_eval
 ```
 
@@ -83,7 +77,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_eval
 ```
 
@@ -129,7 +123,7 @@ uv run python case_study_for_mirna/case_study_mirna.py \
   --final-max-iter 0 \
   --num-threads 8 \
   --config-workers 1 \
-  --warm-start-model case_study_for_mirna/trained_models/manakov_selected_model/model.pkl \
+  --warm-start-model case_study_for_mirna/trained_models/manakov_best_model.pkl \
   --run-tag manuscript_manakov_model_external_eval
 ```
 
