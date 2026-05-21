@@ -1,7 +1,7 @@
 [project]
-name = "estimalign"
+name = "discrimalign"
 version = "0.1.0"
-description = "Estimating alignment parameters from labelled biological sequence pairs"
+description = "Discriminative alignment parameter learning from labelled biological sequence pairs"
 readme = "README.md"
 requires-python = ">=3.10,<3.13"
 dependencies = [
