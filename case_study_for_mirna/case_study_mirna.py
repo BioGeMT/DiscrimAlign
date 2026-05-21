@@ -9,6 +9,7 @@ from itertools import product
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 from Bio.Seq import Seq
 from joblib import Parallel, delayed
 from sklearn.model_selection import train_test_split
@@ -24,6 +25,7 @@ from case_study_for_mirna.scoring import evaluate_probabilities, score_pairs_wit
 
 PAIRED_DATASET_SPLITS = {"hejret": ("hejret_train", "hejret_test"), "manakov": ("manakov_train", "manakov_test")}
 SUPPORTED_DATASET_SPLITS = ["hejret_train", "hejret_test", "manakov_train", "manakov_test", "manakov_leftout", "klimentova_test"]
+REQUIRED_EVALUATION_COLUMNS = ["noncodingRNA", "gene", "label"]
 
 
 def csv_values(raw: str) -> list[str]:
@@ -175,11 +177,63 @@ def copy_artifact_dir(source_dir: str | Path, destination_dir: str | Path) -> No
     print(f"COPIED_MODEL_ARTIFACTS {source_dir} -> {destination_dir}", flush=True)
 
 
+def parse_named_path(raw_value: str) -> tuple[str, Path]:
+    if "=" in raw_value:
+        name, path = raw_value.split("=", 1)
+        name = name.strip()
+        path = path.strip()
+    else:
+        path = raw_value.strip()
+        name = Path(path).stem
+    if not name:
+        raise ValueError(f"Missing evaluation split name in {raw_value!r}.")
+    if not path:
+        raise ValueError(f"Missing evaluation file path in {raw_value!r}.")
+    return name, Path(path)
+
+
+def load_evaluation_file(path: str | Path) -> pd.DataFrame:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(f"Evaluation file does not exist: {path}")
+    if path.suffix.lower() in {".tsv", ".tab"}:
+        frame = pd.read_csv(path, sep="\t")
+    else:
+        frame = pd.read_csv(path)
+    missing = [column for column in REQUIRED_EVALUATION_COLUMNS if column not in frame.columns]
+    if missing:
+        raise ValueError(
+            f"Evaluation file {path} is missing required columns {missing}. "
+            f"Required columns are {REQUIRED_EVALUATION_COLUMNS}."
+        )
+    return frame[REQUIRED_EVALUATION_COLUMNS].copy().reset_index(drop=True)
+
+
+def load_custom_evaluation_frames(raw_eval_files: str | None) -> dict[str, pd.DataFrame]:
+    if not raw_eval_files:
+        return {}
+    frames = {}
+    for raw_value in csv_values(raw_eval_files):
+        name, path = parse_named_path(raw_value)
+        if name in frames:
+            raise ValueError(f"Duplicate evaluation split name {name!r}.")
+        frames[name] = load_evaluation_file(path)
+    return frames
+
+
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run the EstimAlign miRNA case-study grid.")
+    parser = argparse.ArgumentParser(description="Run the DiscrimAlign miRNA case-study grid.")
     parser.add_argument("--dataset", default="hejret", choices=sorted(PAIRED_DATASET_SPLITS))
     parser.add_argument("--dataset-split", default=None, choices=SUPPORTED_DATASET_SPLITS)
-    parser.add_argument("--eval-splits", default=None)
+    parser.add_argument("--eval-splits", default=None, help="Comma-separated miRBench evaluation split aliases.")
+    parser.add_argument(
+        "--eval-files",
+        default=None,
+        help=(
+            "Comma-separated user evaluation files. Use name=path/to/file.tsv or path/to/file.tsv. "
+            "Files must contain noncodingRNA, gene, and label columns."
+        ),
+    )
     parser.add_argument("--results-dir", default="results/case_study_for_mirna")
     parser.add_argument("--run-tag", default="")
     parser.add_argument("--validation-fraction", type=float, default=0.2)
@@ -208,9 +262,15 @@ def prepare_inputs(frame):
 
 
 def load_frames(args):
+    custom_evaluation_frames = {} if args.skip_evaluation else load_custom_evaluation_frames(args.eval_files)
     if args.dataset_split:
         frame = get_dataset_dataframe(args.dataset_split).reset_index(drop=True)
-        return args.dataset_split, frame, frame, frame, {} if args.skip_evaluation else {args.dataset_split: frame}
+        if args.skip_evaluation:
+            evaluation_frames = {}
+        else:
+            evaluation_frames = {args.dataset_split: frame, **custom_evaluation_frames}
+        return args.dataset_split, frame, frame, frame, evaluation_frames
+
     train_alias, default_test_alias = PAIRED_DATASET_SPLITS[args.dataset]
     train_frame = get_dataset_dataframe(train_alias).reset_index(drop=True)
     if args.skip_evaluation:
@@ -221,6 +281,10 @@ def load_frames(args):
         if invalid:
             raise ValueError(f"Invalid evaluation split aliases: {invalid}")
         evaluation_frames = {name: get_dataset_dataframe(name).reset_index(drop=True) for name in split_names}
+        overlap = sorted(set(evaluation_frames).intersection(custom_evaluation_frames))
+        if overlap:
+            raise ValueError(f"Custom evaluation names duplicate miRBench split names: {overlap}")
+        evaluation_frames.update(custom_evaluation_frames)
     fit_frame, validation_frame = train_test_split(
         train_frame,
         test_size=args.validation_fraction,
