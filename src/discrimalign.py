@@ -277,7 +277,10 @@ def discrimalign(seqlistA, seqlistB,
         elif substitution_mode == 'symmetric':
             subsM = subgradient['Substitutions']
             subsM = subsM + add_noise(subsM.shape, iternb)
-            subsM = (subsM + subsM.T) # divide by 2?
+            # Summing mismatch counts to keep the matrix symmetric
+            # with off-diagonal elements corresponding to mismatches,
+            # subtracting the diagonal to avoid counting matches twice
+            subsM = subsM + subsM.T - np.diag(np.diag(subsM)) 
             updated_parameters['substitution_matrix'] += stepsize*subsM
             subgradient_square_norm += np.sum(subsM**2)
         else:

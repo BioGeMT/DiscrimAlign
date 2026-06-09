@@ -66,16 +66,40 @@ def logit_subgradient(alignment_list, logit_scores,
                    'Gap opens': 0,
                    'Gap extends': 0}
     for aln, lab, lscore in zip(alignment_list, labels, logit_scores):
-        ingap = False
+        ingap1 = False
+        ingap2 = False
         weight = lab - lscore
         for char1, char2 in zip(aln[0], aln[1]):
-            if char1 == '-' or char2 == '-':
-                if ingap:
+            if char1 == '-':
+                if ingap1:
                     subgradient['Gap extends'] += weight
                 else:
                     subgradient['Gap opens'] += weight
-                ingap = True
+                ingap1 = True
+            elif char2 == '-':
+                if ingap2:
+                    subgradient['Gap extends'] += weight
+                else:
+                    subgradient['Gap opens'] += weight
+                ingap2 = True
             else:
-                ingap = False
+                ingap1 = False
+                ingap2 = False
                 subgradient['Substitutions'][char1, char2] += weight
     return subgradient
+
+if __name__ == '__main__':
+    seq1 = 'CCTTTCCCGGGGTCTAAGGGTT'
+    seq2 = 'TTACCCAAAATCTGGGCC'
+    from Bio.Align import PairwiseAligner
+    aligner = PairwiseAligner()
+    aligner.mode = 'local'
+    aligner.open_gap_score = -6
+    aligner.extend_gap_score = -0.5
+    aligner.match_score = 5
+    aligner.mismatch_score = -4
+    aln = next(aligner.align(seq1, seq2))
+    lsub = logit_subgradient([aln], [0], [1], 0.5, 'ACTG')
+    print(aln)
+    print(lsub)
+
