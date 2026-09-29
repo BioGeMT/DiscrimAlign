@@ -119,11 +119,8 @@ def test_local_score_dominates_global_score(gap_mode, substitution_mode, seed):
         assert l.score >= g.score - 1e-12
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG: logit_subgradient counts gap-A, gap-B, gap-A as 2 opens + extends; "
-    "Biopython scores every switch as a new open. Reachable once the extend "
-    "score drops below the open score."))
 def test_score_decomposition_with_alternating_gaps():
+    """With extend below open, Biopython returns -A-B / C-D-: four opens, no extends."""
     params = {"match_score": 1.0, "mismatch_score": -100.0,
               "open_gap_score": -1.0, "extend_gap_score": -10.0}
     aln = align_all(["AB"], ["CD"], make_aligner("global", params))[0]

@@ -184,11 +184,8 @@ def test_subgradient_gap_counts(aln, opens, extends):
     assert sg["Gap extends"] == extends
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "BUG: a gap in one sequence does not reset the other sequence's in-gap "
-    "flag, so gap-in-A, gap-in-B, gap-in-A is counted as 2 opens + 1 extend "
-    "instead of 3 opens. Biopython scores it as 3 opens."))
 def test_subgradient_alternating_gaps_are_all_opens():
+    """Switching between gap-in-A and gap-in-B opens a new gap each time."""
     sg = _single(("-A-", "C-G"))
     assert sg["Gap opens"] == 3
     assert sg["Gap extends"] == 0

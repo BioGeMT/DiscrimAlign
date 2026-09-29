@@ -76,11 +76,13 @@ def logit_subgradient(alignment_list, logit_scores,
                 else:
                     subgradient['Gap opens'] += weight
                 ingap1 = True
+                ingap2 = False
             elif char2 == '-':
                 if ingap2:
                     subgradient['Gap extends'] += weight
                 else:
                     subgradient['Gap opens'] += weight
+                ingap1 = False
                 ingap2 = True
             else:
                 ingap1 = False
