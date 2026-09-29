@@ -91,6 +91,12 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
+    if stepfunction is None and max_iter > 0:
+        raise ValueError(
+            'stepfunction is required when max_iter > 0: pass a function '
+            'mapping the iteration number to a step size, e.g. '
+            'create_powerstep(1e-5) or create_constant_step(1e-5) from '
+            'src.optimization')
     if alphabet is None:
         alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
     if alphabet is None:

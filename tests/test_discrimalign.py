@@ -1,4 +1,5 @@
 """Integration tests for src.discrimalign.discrimalign on small fixtures."""
+import sys
 import warnings
 from copy import deepcopy
 
@@ -71,14 +72,25 @@ def test_rejects_unknown_modes(kwargs):
         discrimalign(A, B, y, stepfunction=create_constant_step(0.1), max_iter=1, **kwargs)
 
 
-@pytest.mark.xfail(strict=True, raises=TypeError, reason=(
-    "BUG: stepfunction defaults to None and is called unconditionally, so "
-    "discrimalign() with default arguments crashes on the first iteration."))
-def test_default_stepfunction_runs():
+@pytest.mark.parametrize("max_iter", [1, 1000])
+def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch):
+    # src/__init__.py rebinds src.discrimalign to the function, so the module
+    # is only reachable through sys.modules.
+    module = sys.modules["src.discrimalign"]
+
+    def fail(*args, **kwargs):
+        raise AssertionError("aligned before validating stepfunction")
+
+    monkeypatch.setattr(module, "_align_pairs", fail)
     _, A, B, y = _data()
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        discrimalign(A, B, y, max_iter=1)
+    with pytest.raises(ValueError, match="stepfunction is required"):
+        discrimalign(A, B, y, max_iter=max_iter)
+
+
+def test_missing_stepfunction_is_fine_without_iterations():
+    _, A, B, y = _data()
+    res = _run(A, B, y, "local", "affine", "simple", max_iter=0, stepfunction=None)
+    assert res["loglik_trajectory"] == [res["final_loglik"]]
 
 
 def test_single_class_labels_without_initial_parameters_raise():
