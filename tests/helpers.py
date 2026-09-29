@@ -176,3 +176,24 @@ def perturbed(params, key, delta, index=None, symmetric=False):
         M[j, i] += delta
     new[key] = M
     return new
+
+
+# Edge-case pairs mixed into every random fixture.
+EDGE_PAIRS = [
+    ("A", "A"),
+    ("A", "C"),
+    ("ACGT", "ACGT"),
+    ("AAAA", "CCCC"),
+    ("ACGTACGT", "ACG"),
+    ("G", "TTGTT"),
+]
+
+
+def small_fixture(seed, n=6, length=10):
+    """A few random pairs plus EDGE_PAIRS, with random labels."""
+    rng = np.random.default_rng(seed)
+    seqsA, seqsB, labels = make_pairs(rng, n // 2, n - n // 2, length, sub_rate=0.2)
+    seqsA += [a for a, _ in EDGE_PAIRS]
+    seqsB += [b for _, b in EDGE_PAIRS]
+    labels = np.concatenate([labels, rng.integers(0, 2, size=len(EDGE_PAIRS))])
+    return rng, seqsA, seqsB, labels

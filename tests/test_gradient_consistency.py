@@ -15,30 +15,11 @@ from Bio.Align import PairwiseAligner, substitution_matrices
 
 from src.logit_link import logit_subgradient
 from tests.helpers import (DNA, GAP_MODES, MODES, SUBSTITUTION_MODES, align_all,
+                           small_fixture,
                            loglik_at, make_aligner, make_pairs, model_gradient,
                            perturbed, random_params, subgradient_at)
 
 SEEDS = range(5)
-
-# Edge-case pairs mixed into every random fixture.
-EDGE_PAIRS = [
-    ("A", "A"),
-    ("A", "C"),
-    ("ACGT", "ACGT"),
-    ("AAAA", "CCCC"),
-    ("ACGTACGT", "ACG"),
-    ("G", "TTGTT"),
-]
-
-
-def _fixture(seed, n=6, length=10):
-    rng = np.random.default_rng(seed)
-    seqsA, seqsB, labels = make_pairs(rng, n // 2, n - n // 2, length, sub_rate=0.2)
-    seqsA += [a for a, _ in EDGE_PAIRS]
-    seqsB += [b for _, b in EDGE_PAIRS]
-    labels = np.concatenate([labels, rng.integers(0, 2, size=len(EDGE_PAIRS))])
-    return rng, seqsA, seqsB, labels
-
 
 def _counts_dot_params(sg, params):
     """Score implied by a single alignment's counts (weight 1)."""
@@ -61,7 +42,7 @@ def _counts_dot_params(sg, params):
 @pytest.mark.parametrize("gap_mode", GAP_MODES)
 @pytest.mark.parametrize("mode", MODES)
 def test_score_equals_counts_dot_parameters(mode, gap_mode, substitution_mode, seed):
-    rng, seqsA, seqsB, _ = _fixture(seed)
+    rng, seqsA, seqsB, _ = small_fixture(seed)
     params = random_params(rng, gap_mode, substitution_mode)
     for aln in align_all(seqsA, seqsB, make_aligner(mode, params)):
         sg = logit_subgradient([aln], [0.0], [1], 0.0, DNA)
@@ -72,7 +53,7 @@ def test_score_equals_counts_dot_parameters(mode, gap_mode, substitution_mode, s
 @pytest.mark.parametrize("mode", MODES)
 def test_biopython_counts_match_subgradient_counts(mode, seed):
     """The initial estimate's features (aln.counts()) agree with logit_subgradient."""
-    rng, seqsA, seqsB, _ = _fixture(seed)
+    rng, seqsA, seqsB, _ = small_fixture(seed)
     params = random_params(rng, "affine", "simple")
     for aln in align_all(seqsA, seqsB, make_aligner(mode, params)):
         sg = logit_subgradient([aln], [0.0], [1], 0.0, DNA)
@@ -88,7 +69,7 @@ def test_biopython_counts_match_subgradient_counts(mode, seed):
 @pytest.mark.parametrize("seed", SEEDS)
 @pytest.mark.parametrize("mode", MODES)
 def test_biopython_counts_reproduce_score(mode, seed):
-    rng, seqsA, seqsB, _ = _fixture(seed)
+    rng, seqsA, seqsB, _ = small_fixture(seed)
     params = random_params(rng, "affine", "simple")
     for aln in align_all(seqsA, seqsB, make_aligner(mode, params)):
         c = aln.counts()
@@ -111,7 +92,7 @@ def test_local_score_is_nonnegative_and_global_is_not_bounded():
 @pytest.mark.parametrize("gap_mode", GAP_MODES)
 @pytest.mark.parametrize("substitution_mode", SUBSTITUTION_MODES)
 def test_local_score_dominates_global_score(gap_mode, substitution_mode, seed):
-    rng, seqsA, seqsB, _ = _fixture(seed)
+    rng, seqsA, seqsB, _ = small_fixture(seed)
     params = random_params(rng, gap_mode, substitution_mode)
     local = align_all(seqsA, seqsB, make_aligner("local", params))
     glob = align_all(seqsA, seqsB, make_aligner("global", params))
@@ -151,7 +132,7 @@ def _directions(params, substitution_mode, alphabet=DNA):
 @pytest.mark.parametrize("gap_mode", GAP_MODES)
 @pytest.mark.parametrize("mode", MODES)
 def test_subgradient_matches_finite_differences(mode, gap_mode, substitution_mode, seed):
-    rng, seqsA, seqsB, labels = _fixture(seed)
+    rng, seqsA, seqsB, labels = small_fixture(seed)
     params = random_params(rng, gap_mode, substitution_mode)
     sg = subgradient_at(seqsA, seqsB, labels, mode, params, DNA)
     grad = model_gradient(sg, gap_mode, substitution_mode)
@@ -166,7 +147,7 @@ def test_subgradient_matches_finite_differences(mode, gap_mode, substitution_mod
 
 @pytest.mark.parametrize("mode", MODES)
 def test_alpha_derivative_is_sum_of_residuals(mode):
-    rng, seqsA, seqsB, labels = _fixture(11)
+    rng, seqsA, seqsB, labels = small_fixture(11)
     params = random_params(rng, "affine", "simple")
     h = 1e-6
     up = loglik_at(seqsA, seqsB, labels, mode, dict(params, alpha=params["alpha"] + h))
@@ -181,7 +162,7 @@ def test_alpha_derivative_is_sum_of_residuals(mode):
 @pytest.mark.parametrize("mode", MODES)
 def test_score_is_convex_in_parameters(mode, seed):
     """Viterbi score is a max of linear functions, hence convex along any line."""
-    rng, seqsA, seqsB, _ = _fixture(seed)
+    rng, seqsA, seqsB, _ = small_fixture(seed)
     p0 = random_params(rng, "affine", "general")
     p1 = random_params(rng, "affine", "general")
 
