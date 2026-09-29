@@ -5,6 +5,7 @@ log-likelihood as a function of the alignment parameters.
 """
 import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
+from scipy.optimize import brentq
 from scipy.special import expit
 
 from src.logit_link import logit_subgradient
@@ -124,20 +125,11 @@ def loglik_at(seqsA, seqsB, labels, mode, params):
     return float(np.sum(labels * z - np.logaddexp(0.0, z)))
 
 
-def optimal_alpha(scores, labels, alpha0=0.0, iters=100):
-    """Newton's method on the intercept, independent of scipy.minimize."""
+def optimal_alpha(scores, labels, bracket=(-200.0, 200.0)):
+    """Root of d logL / d alpha, by bracketing (independent of scipy.minimize)."""
     scores = np.asarray(scores, dtype=float)
     labels = np.asarray(labels, dtype=float)
-    alpha = alpha0
-    for _ in range(iters):
-        p = expit(alpha + scores)
-        g = np.sum(labels - p)
-        h = -np.sum(p * (1 - p))
-        step = g / h
-        alpha -= step
-        if abs(step) < 1e-14:
-            break
-    return alpha
+    return brentq(lambda a: np.sum(labels - expit(a + scores)), *bracket, xtol=1e-14)
 
 
 def model_gradient(subgradient, gap_mode, substitution_mode):
