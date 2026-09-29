@@ -13,7 +13,7 @@ case_study_for_mirna/         miRNA case study, trained models, and evaluation i
 
 ## Requirements
 
-- Python `>=3.10,<3.13`
+- Python `>=3.10`
 - `uv` for environment management
 - JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
