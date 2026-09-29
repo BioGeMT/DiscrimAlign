@@ -1,0 +1,326 @@
+"""Unit tests for src.optimization."""
+import warnings
+
+import numpy as np
+import pytest
+from Bio.Align import PairwiseAligner
+from joblib import Parallel
+from scipy.special import expit
+
+from src.optimization import (EmptyAlignmentCounts, EmptyLocalAlignment,
+                              create_alignment_workers, create_constant_step,
+                              create_powerstep, get_first_alignment,
+                              get_initial_estimate)
+from tests.helpers import DNA, align_all, make_aligner, make_pairs, random_params
+
+
+# --- EmptyLocalAlignment ----------------------------------------------------
+
+def test_empty_local_alignment_score_is_zero():
+    assert EmptyLocalAlignment().score == 0.0
+
+
+def test_empty_local_alignment_counts_are_zero():
+    counts = EmptyLocalAlignment().counts()
+    for field in ("identities", "mismatches", "open_gaps", "extend_gaps", "gaps"):
+        assert getattr(counts, field) == 0
+
+
+def test_empty_local_alignment_rows_are_empty_strings():
+    aln = EmptyLocalAlignment()
+    assert aln[0] == ""
+    assert aln[1] == ""
+
+
+@pytest.mark.parametrize("index", [2, -1, 5])
+def test_empty_local_alignment_other_rows_raise(index):
+    with pytest.raises(IndexError):
+        EmptyLocalAlignment()[index]
+
+
+def test_empty_alignment_counts_class_attributes():
+    assert EmptyAlignmentCounts.gaps == 0
+
+
+# --- get_first_alignment ----------------------------------------------------
+
+def _simple_aligner(mode):
+    aligner = PairwiseAligner()
+    aligner.mode = mode
+    aligner.match_score = 5
+    aligner.mismatch_score = -4
+    aligner.open_gap_score = -8
+    aligner.extend_gap_score = -0.5
+    return aligner
+
+
+def test_first_alignment_global():
+    aln = get_first_alignment("ACGT", "ACGT", _simple_aligner("global"))
+    assert aln.score == 20
+    assert aln[0] == "ACGT"
+
+
+def test_first_alignment_local_substring():
+    aln = get_first_alignment("TTTACGTTTT", "GGACGGG", _simple_aligner("local"))
+    assert aln.score == 15  # ACG
+
+
+@pytest.mark.parametrize("a, b", [("AAAA", "CCCC"), ("A", "C"), ("ACAC", "GTGT")])
+def test_first_alignment_local_without_positive_score_is_empty(a, b):
+    aln = get_first_alignment(a, b, _simple_aligner("local"))
+    assert isinstance(aln, EmptyLocalAlignment)
+    assert aln.score == 0.0
+
+
+def test_first_alignment_global_always_exists_for_unrelated_sequences():
+    aln = get_first_alignment("AAAA", "CCCC", _simple_aligner("global"))
+    assert aln.score < 0
+
+
+def test_first_alignment_reraises_stopiteration_outside_local_mode():
+    class NoAlignments:
+        mode = "global"
+
+        def align(self, a, b):
+            return iter(())
+
+    with pytest.raises(StopIteration):
+        get_first_alignment("A", "C", NoAlignments())
+
+
+# --- create_alignment_workers -----------------------------------------------
+
+@pytest.mark.parametrize("mode", ["local", "global"])
+def test_alignment_workers_reproduce_serial_alignments(mode):
+    rng = np.random.default_rng(1)
+    seqsA, seqsB, _ = make_pairs(rng, 4, 4, 12)
+    aligner = _simple_aligner(mode)
+    parallel = Parallel(n_jobs=2, prefer="threads")
+    alns = parallel(create_alignment_workers(seqsA, seqsB, aligner))
+    expected = align_all(seqsA, seqsB, aligner)
+    assert [a.score for a in alns] == [e.score for e in expected]
+
+
+def test_alignment_workers_is_lazy_and_sized_by_input():
+    gen = create_alignment_workers(["A", "C", "G"], ["A", "C", "G"], _simple_aligner("global"))
+    assert len(list(gen)) == 3
+
+
+# --- step functions ---------------------------------------------------------
+
+@pytest.mark.parametrize("scale", [0.0, 0.01, 3.5])
+def test_constant_step(scale):
+    step = create_constant_step(scale)
+    assert [step(i) for i in range(5)] == [scale] * 5
+
+
+def test_powerstep_default_is_inverse_square_root():
+    step = create_powerstep(2.0)
+    for i in range(10):
+        assert step(i) == pytest.approx(2.0 / np.sqrt(i + 1))
+
+
+@pytest.mark.parametrize("power", [0.0, 0.5, 1.0, 2.0])
+def test_powerstep_power(power):
+    step = create_powerstep(1.0, power=power)
+    assert step(3) == pytest.approx(4.0 ** -power)
+
+
+def test_powerstep_burnin_is_constant_then_decays_from_scale():
+    step = create_powerstep(1.0, power=1.0, burnin=3)
+    assert [step(i) for i in range(3)] == [1.0, 1.0, 1.0]
+    assert step(3) == pytest.approx(1.0)  # first post-burnin step is still the full scale
+    assert step(4) == pytest.approx(0.5)
+    assert step(12) == pytest.approx(0.1)
+
+
+def test_powerstep_is_nonincreasing():
+    step = create_powerstep(0.3, power=0.7, burnin=2)
+    values = [step(i) for i in range(50)]
+    assert all(a >= b for a, b in zip(values, values[1:]))
+
+
+# --- initial estimate on synthetic count features ---------------------------
+#
+# Fake alignments with prescribed count features, labelled by a known logistic
+# model. Fitting recovers the model, which pins down the mapping from
+# regression coefficients to parameter names.
+
+class FakeCounts:
+    def __init__(self, identities, mismatches, open_gaps, extend_gaps):
+        self.identities = identities
+        self.mismatches = mismatches
+        self.open_gaps = open_gaps
+        self.extend_gaps = extend_gaps
+        self.gaps = open_gaps + extend_gaps
+
+
+class FakeAlignment:
+    def __init__(self, row0, row1, counts):
+        self.rows = (row0, row1)
+        self._counts = counts
+
+    def counts(self):
+        return self._counts
+
+    def __getitem__(self, index):
+        return self.rows[index]
+
+
+def _fake_simple_data(rng, n, coefs, alpha, linear=False):
+    alns, labels = [], []
+    for _ in range(n):
+        ident, mism = rng.poisson(4), rng.poisson(3)
+        opens, extends = rng.poisson(1.0), rng.poisson(1.5)
+        if linear:
+            x = np.array([ident, mism, opens + extends])
+        else:
+            x = np.array([ident, mism, opens, extends])
+        labels.append(int(rng.random() < expit(alpha + x @ coefs)))
+        alns.append(FakeAlignment("", "", FakeCounts(ident, mism, opens, extends)))
+    return alns, np.array(labels)
+
+
+def test_initial_estimate_simple_affine_recovers_coefficients():
+    rng = np.random.default_rng(0)
+    coefs = np.array([0.8, -0.6, -1.0, -0.3])
+    alns, labels = _fake_simple_data(rng, 4000, coefs, alpha=-0.5)
+    est = get_initial_estimate(alns, labels, "simple", "affine")
+    assert set(est) == {"alpha", "match_score", "mismatch_score",
+                        "open_gap_score", "extend_gap_score"}
+    assert est["alpha"] == pytest.approx(-0.5, abs=0.25)
+    assert est["match_score"] == pytest.approx(0.8, abs=0.1)
+    assert est["mismatch_score"] == pytest.approx(-0.6, abs=0.1)
+    assert est["open_gap_score"] == pytest.approx(-1.0, abs=0.15)
+    assert est["extend_gap_score"] == pytest.approx(-0.3, abs=0.1)
+
+
+def test_initial_estimate_simple_linear_recovers_coefficients():
+    rng = np.random.default_rng(1)
+    coefs = np.array([0.8, -0.6, -0.7])
+    alns, labels = _fake_simple_data(rng, 4000, coefs, alpha=-0.5, linear=True)
+    est = get_initial_estimate(alns, labels, "simple", "linear")
+    assert set(est) == {"alpha", "match_score", "mismatch_score", "gap_score"}
+    assert est["match_score"] == pytest.approx(0.8, abs=0.1)
+    assert est["mismatch_score"] == pytest.approx(-0.6, abs=0.1)
+    assert est["gap_score"] == pytest.approx(-0.7, abs=0.1)
+
+
+def _fake_full_data(rng, n, matrix, open_coef, extend_coef, alpha, alphabet):
+    alns, labels = [], []
+    k = len(alphabet)
+    for _ in range(n):
+        pair_counts = rng.poisson(0.6, size=(k, k))
+        opens, extends = rng.poisson(1.0), rng.poisson(1.5)
+        row0 = "".join(alphabet[i] * pair_counts[i, j] for i in range(k) for j in range(k))
+        row1 = "".join(alphabet[j] * pair_counts[i, j] for i in range(k) for j in range(k))
+        # Gap columns in the rows must be ignored by the substitution features.
+        row0 += "-" * opens
+        row1 += alphabet[0] * opens
+        eta = alpha + np.sum(pair_counts * matrix) + opens * open_coef + extends * extend_coef
+        labels.append(int(rng.random() < expit(eta)))
+        ident = int(np.trace(pair_counts))
+        alns.append(FakeAlignment(row0, row1,
+                                  FakeCounts(ident, int(pair_counts.sum()) - ident, opens, extends)))
+    return alns, np.array(labels)
+
+
+def test_initial_estimate_general_affine_matrix_orientation():
+    rng = np.random.default_rng(2)
+    alphabet = "ACG"
+    matrix = np.full((3, 3), -0.3)
+    matrix[np.diag_indices(3)] = 0.6
+    matrix[0, 1] = 1.2    # A->C strongly positive, C->A not
+    alns, labels = _fake_full_data(rng, 4000, matrix, -0.8, -0.2, -0.3, alphabet)
+    est = get_initial_estimate(alns, labels, "general", "affine", alphabet)
+    assert set(est) == {"alpha", "substitution_matrix", "open_gap_score", "extend_gap_score"}
+    M = est["substitution_matrix"]
+    assert "".join(M.alphabet) == alphabet
+    # Default L2 penalty shrinks the fit a little, so the tolerance is loose.
+    np.testing.assert_allclose(np.asarray(M), matrix, atol=0.2)
+    assert M["A", "C"] > M["C", "A"] + 0.8
+    assert est["open_gap_score"] == pytest.approx(-0.8, abs=0.2)
+    assert est["extend_gap_score"] == pytest.approx(-0.2, abs=0.15)
+
+
+def test_initial_estimate_symmetric_is_symmetrized_general():
+    rng = np.random.default_rng(3)
+    alphabet = "ACG"
+    matrix = np.full((3, 3), -0.3)
+    matrix[np.diag_indices(3)] = 0.6
+    matrix[0, 1] = 1.2
+    alns, labels = _fake_full_data(rng, 1000, matrix, -0.8, -0.2, -0.3, alphabet)
+    general = get_initial_estimate(alns, labels, "general", "affine", alphabet)
+    symmetric = get_initial_estimate(alns, labels, "symmetric", "affine", alphabet)
+    G = np.asarray(general["substitution_matrix"])
+    S = symmetric["substitution_matrix"]
+    np.testing.assert_allclose(np.asarray(S), (G + G.T) / 2)
+    assert "".join(S.alphabet) == alphabet
+    assert symmetric["open_gap_score"] == pytest.approx(general["open_gap_score"])
+
+
+@pytest.mark.parametrize("substitution_mode", ["general", "symmetric"])
+def test_initial_estimate_full_linear_merges_gap_coefficients(substitution_mode):
+    rng = np.random.default_rng(4)
+    alns, labels = _fake_full_data(rng, 500, np.eye(3) - 0.3, -0.8, -0.2, -0.3, "ACG")
+    affine = get_initial_estimate(alns, labels, substitution_mode, "affine", "ACG")
+    linear = get_initial_estimate(alns, labels, substitution_mode, "linear", "ACG")
+    assert set(linear) == {"alpha", "substitution_matrix", "gap_score"}
+    assert linear["gap_score"] == pytest.approx(
+        affine["open_gap_score"] + affine["extend_gap_score"])
+
+
+def test_initial_estimate_rejects_unknown_modes():
+    alns = [FakeAlignment("", "", FakeCounts(1, 0, 0, 0))] * 2
+    with pytest.raises(AssertionError):
+        get_initial_estimate(alns, [0, 1], "simple", "convex")
+    with pytest.raises(AssertionError):
+        get_initial_estimate(alns, [0, 1], "banded", "affine")
+
+
+@pytest.mark.parametrize("substitution_mode", ["general", "symmetric"])
+def test_initial_estimate_full_requires_alphabet(substitution_mode):
+    alns = [FakeAlignment("", "", FakeCounts(1, 0, 0, 0))] * 2
+    with pytest.raises(AssertionError):
+        get_initial_estimate(alns, [0, 1], substitution_mode, "affine")
+
+
+def test_initial_estimate_needs_both_classes():
+    alns = [FakeAlignment("", "", FakeCounts(i, 1, 0, 0)) for i in range(4)]
+    with pytest.raises(ValueError):
+        get_initial_estimate(alns, [1, 1, 1, 1], "simple", "affine")
+
+
+# --- initial estimate on real alignments ------------------------------------
+
+@pytest.mark.parametrize("mode", ["local", "global"])
+@pytest.mark.parametrize("gap_mode", ["affine", "linear"])
+@pytest.mark.parametrize("substitution_mode", ["simple", "symmetric", "general"])
+def test_initial_estimate_on_real_alignments(mode, gap_mode, substitution_mode):
+    rng = np.random.default_rng(5)
+    seqsA, seqsB, labels = make_pairs(rng, 20, 20, 25, sub_rate=0.2)
+    params = random_params(rng, gap_mode, substitution_mode)
+    alns = align_all(seqsA, seqsB, make_aligner(mode, params))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")  # convergence warnings on tiny data
+        est = get_initial_estimate(alns, labels, substitution_mode, gap_mode, DNA)
+    for key, value in est.items():
+        assert np.all(np.isfinite(np.asarray(value))), key
+    if substitution_mode == "simple":
+        assert est["match_score"] > est["mismatch_score"]
+    else:
+        M = np.asarray(est["substitution_matrix"])
+        assert np.mean(np.diag(M)) > np.mean(M[~np.eye(4, dtype=bool)])
+        if substitution_mode == "symmetric":
+            np.testing.assert_allclose(M, M.T)
+
+
+def test_initial_estimate_accepts_empty_local_alignments():
+    alns = [EmptyLocalAlignment(), EmptyLocalAlignment(),
+            FakeAlignment("AC", "AC", FakeCounts(2, 0, 0, 0)),
+            FakeAlignment("AG", "AG", FakeCounts(2, 0, 0, 0))]
+    labels = [0, 0, 1, 1]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        est = get_initial_estimate(alns, labels, "general", "affine", "ACGT")
+    assert np.all(np.isfinite(np.asarray(est["substitution_matrix"])))
