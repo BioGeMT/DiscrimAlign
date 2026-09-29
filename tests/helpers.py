@@ -7,7 +7,7 @@ import numpy as np
 from Bio.Align import PairwiseAligner, substitution_matrices
 from scipy.special import expit
 
-from src.logit_link import logit_logL, logit_subgradient
+from src.logit_link import logit_subgradient
 from src.optimization import get_first_alignment
 
 DNA = "ACGT"
@@ -112,9 +112,16 @@ def scores_at(seqsA, seqsB, mode, params):
 
 
 def loglik_at(seqsA, seqsB, labels, mode, params):
-    """Log-likelihood at params, with alpha held fixed at params['alpha']."""
-    scores = scores_at(seqsA, seqsB, mode, params)
-    return logit_logL(expit(params["alpha"] + scores), labels)
+    """
+    Log-likelihood at params, with alpha held fixed at params['alpha'].
+
+    Computed from the logits as sum(y*z - log(1 + e^z)), independently of
+    logit_logL, and without the cancellation in 1 - expit(z) that makes
+    logit_logL too noisy for finite differences on confident predictions.
+    """
+    z = params["alpha"] + scores_at(seqsA, seqsB, mode, params)
+    labels = np.asarray(labels, dtype=float)
+    return float(np.sum(labels * z - np.logaddexp(0.0, z)))
 
 
 def optimal_alpha(scores, labels, alpha0=0.0, iters=100):
