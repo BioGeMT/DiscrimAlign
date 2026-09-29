@@ -6,6 +6,7 @@ DiscrimAlign is a research codebase for discriminatively learning alignment para
 
 ```text
 src/                         Core DiscrimAlign implementation
+tests/                       Unit and integration tests (pytest)
 Simulation experiments.ipynb  Simulation experiments for the manuscript
 pyproject.toml                Project environment managed by uv
 case_study_for_mirna/         miRNA case study, trained models, and evaluation instructions
@@ -103,6 +104,17 @@ print(result["alpha"])
 The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
 
 Parallel alignment during fitting is chunked when `num_threads > 1`. Each joblib task processes a chunk of sequence pairs rather than a single pair, which reduces scheduler overhead across repeated optimization iterations while preserving alignment order. Thread-based joblib workers are used for the chunked alignment tasks.
+
+## Running tests
+
+`uv sync` installs `pytest` with the default `dev` dependency group. From the repository root:
+
+```bash
+uv run pytest                  # full suite, about 30 s
+uv run pytest -m "not slow"    # skip the end-to-end learning runs
+```
+
+Tests marked `xfail(strict=True)` document known bugs; they start failing once the bug is fixed, and the marker should then be removed.
 
 ## miRNA case study
 
