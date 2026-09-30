@@ -12,8 +12,8 @@ import pytest
 
 from src.discrimalign import discrimalign, discrimalign_nwgrad
 from src.optimization import EmptyLocalAlignment, create_constant_step, create_powerstep
-from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, make_aligner, make_pairs,
-                           random_params)
+from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, make_aligner,
+                           make_pairs, random_params)
 
 ALL_MODES = [(m, g, s) for m in MODES for g in GAP_MODES for s in SUBSTITUTION_MODES]
 
@@ -63,17 +63,7 @@ def test_trajectory_matches_biopython_from_given_parameters(mode, gap_mode, subs
     _assert_same_fit(bio, nw, gap_mode, substitution_mode)
 
 
-_TERMINAL_GAP = pytest.mark.xfail(strict=True, reason=(
-    "nwgrad's local mode lets an alignment end (though not start) with a gap "
-    "column; Biopython allows neither. They agree while gap columns score "
-    "negative, but here the linear-gap initial estimate is positive "
-    "(gap_score = open + extend of an affine fit)."))
-
-
-@pytest.mark.parametrize("mode, gap_mode, substitution_mode", [
-    pytest.param(*combo, marks=_TERMINAL_GAP)
-    if combo in {("local", "linear", "symmetric"), ("local", "linear", "general")} else combo
-    for combo in ALL_MODES])
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_trajectory_matches_biopython_from_initial_estimate(mode, gap_mode, substitution_mode):
     _, A, B, y = _data(2, n=20)
     bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, max_iter=3,
@@ -171,9 +161,10 @@ def test_local_terminal_gaps_agree_when_gaps_are_penalized(gap_mode, params, a, 
 
 @pytest.mark.parametrize("a, b", [
     pytest.param("AAA", "AAAT", marks=pytest.mark.xfail(strict=True, reason=(
-        "nwgrad's local mode lets an alignment end with a gap column; Biopython "
-        "does not. Only reachable when a gap column scores positive."))),
-    ("AAA", "TAAA"),  # neither engine starts a local alignment with a gap
+        "Positive gap scores are outside local alignment's domain: nwgrad lets a "
+        "local alignment end with a gap column, and Biopython's align() and "
+        "score() disagree with each other. discrimalign keeps gap scores negative."))),
+    ("AAA", "TAAA"),
 ])
 def test_local_terminal_gaps_agree_when_gaps_score_positive(a, b):
     from src.nwgrad_backend import NwgradEngine

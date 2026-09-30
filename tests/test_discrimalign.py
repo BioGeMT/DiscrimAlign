@@ -8,7 +8,7 @@ import pytest
 from Bio.Align import PairwiseAligner, substitution_matrices
 from scipy.special import expit
 
-from src.discrimalign import discrimalign
+from src.discrimalign import _MAX_GAP_SCORE, discrimalign
 from src.logit_link import logit_logL, logit_subgradient
 from src.optimization import (EmptyLocalAlignment, create_constant_step,
                               create_powerstep, get_initial_estimate)
@@ -41,6 +41,16 @@ def _run(seqsA, seqsB, labels, mode, gap_mode, substitution_mode, **kwargs):
         warnings.simplefilter("ignore")  # sklearn convergence noise on tiny data
         return discrimalign(seqsA, seqsB, labels, aligner_mode=mode, gap_mode=gap_mode,
                             substitution_mode=substitution_mode, **kwargs)
+
+
+GAP_KEYS = ("open_gap_score", "extend_gap_score", "gap_score")
+
+
+def _clip_gaps(params):
+    """The projection discrimalign applies: gap scores are capped."""
+    for key in GAP_KEYS:
+        if key in params:
+            params[key] = np.minimum(params[key], _MAX_GAP_SCORE)
 
 
 def _assert_alpha_stationary(alpha, scores, labels):
@@ -194,6 +204,7 @@ def test_one_iteration_is_one_subgradient_step(mode, gap_mode, substitution_mode
     logits = expit(alpha + scores)
     grad = model_gradient(logit_subgradient(alns, logits, y, alpha, DNA), gap_mode, substitution_mode)
     expected = {k: np.asarray(p0[k]) + eta * np.asarray(grad[k]) for k in grad}
+    _clip_gaps(expected)
     _assert_params_equal(res, expected, grad.keys(), rtol=1e-12, atol=1e-12)
 
     norm = np.sqrt(sum(np.sum(np.asarray(g) ** 2) for g in grad.values()))
@@ -376,6 +387,7 @@ def test_initial_estimate_uses_default_baseline(mode, gap_mode, substitution_mod
         expected = get_initial_estimate(
             align_all(A, B, _default_baseline(mode, gap_mode, substitution_mode)), y,
             substitution_mode=substitution_mode, gap_mode=gap_mode, alphabet=DNA)
+    _clip_gaps(expected)
     _assert_params_equal(res, expected, _param_keys(gap_mode, substitution_mode), rtol=1e-12)
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
@@ -388,6 +400,7 @@ def test_initial_estimate_uses_given_baseline_aligner():
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         expected = get_initial_estimate(align_all(A, B, baseline), y, "simple", "linear")
+    _clip_gaps(expected)
     _assert_params_equal(res, expected, {"match_score", "mismatch_score", "gap_score"}, rtol=1e-12)
 
 
@@ -433,3 +446,52 @@ def test_verbose_prints_progress(capsys):
     assert "Alphabet:" in out
     assert "Start of iteration 0" in out
     assert "End of iteration 0" in out
+
+
+# --- gap scores are projected onto <= 0 -------------------------------------
+
+@pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
+@pytest.mark.parametrize("gap_mode, positive", [
+    ("affine", {"open_gap_score": 0.4}),
+    ("affine", {"extend_gap_score": 0.2}),
+    ("affine", {"open_gap_score": 0.4, "extend_gap_score": 0.2}),
+    ("linear", {"gap_score": 0.3}),
+])
+def test_positive_starting_gap_scores_are_projected(gap_mode, positive, backend):
+    rng, A, B, y = _data(25)
+    p0 = random_params(rng, gap_mode, "simple")
+    negative = {k: p0[k] for k in GAP_KEYS if k in p0 and k not in positive}
+    p0.update(positive)
+    res = _run(A, B, y, "local", gap_mode, "simple", initial_parameters=p0,
+               max_iter=0, stepfunction=None, backend=backend)
+    for key in positive:
+        assert res[key] == _MAX_GAP_SCORE
+    for key, value in negative.items():
+        assert res[key] == value
+    assert p0[next(iter(positive))] > 0  # the caller's dict is not modified
+
+
+@pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
+@pytest.mark.parametrize("mode, gap_mode", [(m, g) for m in MODES for g in GAP_MODES])
+def test_gap_scores_never_become_positive(mode, gap_mode, backend):
+    """Steps large enough to overshoot the cap are projected back onto it."""
+    hits_cap = False
+    for seed in range(4):
+        rng, A, B, y = _data(26 + seed)
+        p0 = random_params(rng, gap_mode, "simple")
+        for key in GAP_KEYS:
+            if key in p0:
+                p0[key] = 2 * _MAX_GAP_SCORE
+        res = _run(A, B, y, mode, gap_mode, "simple", initial_parameters=p0, max_iter=3,
+                   stepfunction=create_constant_step(1.0), backend=backend)
+        gaps = [res[k] for k in GAP_KEYS if k in res]
+        assert all(g <= _MAX_GAP_SCORE for g in gaps)
+        hits_cap |= any(g == _MAX_GAP_SCORE for g in gaps)
+    assert hits_cap
+
+
+def test_substitution_scores_are_not_projected():
+    rng, A, B, y = _data(30)
+    p0 = random_params(rng, "affine", "simple")
+    res = _run(A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
+    assert res["match_score"] > 0

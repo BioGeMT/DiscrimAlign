@@ -86,6 +86,24 @@ def _configure_aligner(aligner, params, gap_mode, substitution_mode):
         aligner.substitution_matrix = params['substitution_matrix']
 
 
+# Gap scores are costs and are kept at or below this value. A positive gap
+# score makes local alignment ill-posed: Biopython's align() and score()
+# disagree there, and the two backends end local alignments differently.
+# TODO: reset to 0.0 once the backends handle the kink at a gap score of 0.
+# There, zero-cost gap columns tie with none, and Biopython and nwgrad break
+# the tie differently, so they return different (both valid) subgradients.
+# Out of scope for the nwgrad integration. -1e-4 keeps the fit off the kink
+# and well above PairwiseAligner.epsilon (1e-6), Biopython's tie tolerance.
+_MAX_GAP_SCORE = -1e-4
+
+
+def _clip_gap_scores(params, gap_mode):
+    """Project gap scores onto <= _MAX_GAP_SCORE."""
+    keys = ('open_gap_score', 'extend_gap_score') if gap_mode == 'affine' else ('gap_score',)
+    for key in keys:
+        params[key] = min(params[key], _MAX_GAP_SCORE)
+
+
 class _BiopythonEngine:
     """
     Scores and subgradients from Biopython alignments: set_params(), then
@@ -208,6 +226,7 @@ def discrimalign(seqlistA, seqlistB,
     if verbose:
         print('Initial parameters:')
         print(updated_parameters)
+    _clip_gap_scores(updated_parameters, gap_mode)
     _configure_aligner(aligner, updated_parameters, gap_mode, substitution_mode)
 
     # The baseline aligner's mode, when given, takes precedence over aligner_mode.
@@ -329,6 +348,7 @@ def discrimalign(seqlistA, seqlistB,
             subsM = subsM + add_noise(subsM.shape, iternb)
             updated_parameters['substitution_matrix'] += stepsize*subsM
             subgradient_square_norm += np.sum(subsM**2)
+        _clip_gap_scores(updated_parameters, gap_mode)
         subgradient_l2_trajectory.append(np.sqrt(subgradient_square_norm))
         if verbose:
             print('New parameters:')
