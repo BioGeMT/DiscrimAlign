@@ -8,8 +8,6 @@ import nwgrad
 
 from .nwgrad_params import grad_to_raw, to_nwgrad
 
-_GAP_FIELDS = ('gap_open_a', 'gap_extend_a', 'gap_open_b', 'gap_extend_b')
-
 
 class NwgradEngine:
     """
@@ -44,19 +42,15 @@ class NwgradEngine:
 
     def scores(self):
         self.batch.score_and_grad()
-        return [self.batch[i].score for i in range(len(self.batch))]
+        return self.batch.scores()
 
     def raw_subgradient(self, logit_scores, labels, alpha):
         """
         sum_i (label_i - logit_score_i) * counts_i, in logit_subgradient's
-        format. The weighted sum is taken in nwgrad's parametrization and
-        converted once, which is exact because the conversion is linear.
-        alpha is unused, as in logit_subgradient.
+        format. nwgrad sums the cached per-pair gradients in its own
+        parametrization, and the sum is converted once, which is exact
+        because the conversion is linear. alpha is unused, as in
+        logit_subgradient.
         """
         weights = np.asarray(labels, dtype=float) - np.asarray(logit_scores, dtype=float)
-        grads = [self.batch[i].grad.to_dict() for i in range(len(self.batch))]
-        summed = {'alphabet': grads[0]['alphabet'],
-                  'matrix': np.tensordot(weights, np.stack([g['matrix'] for g in grads]), axes=1)}
-        for field in _GAP_FIELDS:
-            summed[field] = float(weights @ np.array([g[field] for g in grads]))
-        return grad_to_raw(summed)
+        return grad_to_raw(self.batch.weighted_grad(weights))
