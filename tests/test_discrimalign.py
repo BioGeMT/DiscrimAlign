@@ -175,14 +175,15 @@ def test_zero_step_keeps_parameters_and_fits_alpha(mode, gap_mode, substitution_
 
 # --- one iteration is exactly one subgradient step --------------------------
 
+@pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
 @pytest.mark.parametrize("seed", [4, 5])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_one_iteration_is_one_subgradient_step(mode, gap_mode, substitution_mode, seed):
+def test_one_iteration_is_one_subgradient_step(mode, gap_mode, substitution_mode, seed, backend):
     rng, A, B, y = _data(seed)
     p0 = random_params(rng, gap_mode, substitution_mode)
     eta = 0.013
     res = _run(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
-               max_iter=1, stepfunction=create_constant_step(eta))
+               max_iter=1, stepfunction=create_constant_step(eta), backend=backend)
 
     alns = align_all(A, B, make_aligner(mode, p0))
     scores = np.array([a.score for a in alns])
