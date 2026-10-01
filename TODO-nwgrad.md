@@ -3,17 +3,6 @@
 Items deliberately left out of the nwgrad backend work, roughly in the order
 they become relevant.
 
-## At the nwgrad 0.5.0 release
-
-- **Dependency:** in `pyproject.toml`, require `nwgrad>=0.5.0`.
-  `SeqPairBatch.scores()` and `SeqPairBatch.weighted_grad()` first appear in
-  0.5.0.
-- **CI:** in `.github/workflows/tests.yml`, remove the step that installs
-  nwgrad from a pinned GitHub commit (`NWGRAD_REV`), so CI tests the released
-  wheel, and confirm one green run against it.
-- Until then, a local `uv sync` installs nwgrad 0.4.0 from PyPI, which lacks
-  the API this code uses.
-
 ## Validation
 
 - **Real data:** run both backends on the miRNA case study and compare the

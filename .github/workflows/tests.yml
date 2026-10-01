@@ -7,16 +7,11 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
-    env:
-      # Until nwgrad 0.5.0 is released, test against this nwgrad commit.
-      NWGRAD_REV: eeba40acc2cff7b244617355511e049a5815a108
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v10.2.0
         with:
           python-version: "3.12"
       - run: uv sync
-      - run: |
-          uv pip install "nwgrad @ git+https://github.com/michalsta/nwgrad@${NWGRAD_REV}"
-          uv pip show nwgrad
-      - run: uv run --no-sync pytest
+      - run: uv pip show nwgrad
+      - run: uv run pytest
