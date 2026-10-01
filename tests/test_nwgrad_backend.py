@@ -324,3 +324,51 @@ def test_nwgrad_backend_rejects_nonuniform_baseline_aligner():
     with pytest.raises(ValueError, match="internal and end gaps"):
         discrimalign(A, B, y, aligner_mode="global", gap_mode="affine", substitution_mode="simple",
                      baseline_aligner=_aligner(end_gap_score=0), max_iter=0, backend="nwgrad")
+
+
+# --- inputs beyond short DNA ------------------------------------------------
+#
+# Continuous random starting parameters, so neither the start nor the fitted
+# point has exactly equal scores that the backends could break differently.
+
+PROTEIN = "ACDEFGHIKLMNPQRSTVWY"
+
+
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode",
+                         [("local", "affine", "symmetric"), ("global", "linear", "general")])
+def test_protein_trajectory_matches_biopython(mode, gap_mode, substitution_mode):
+    rng = np.random.default_rng(50)
+    A, B, y = make_pairs(rng, 5, 5, 60, alphabet=PROTEIN, sub_rate=0.3)
+    p0 = random_params(rng, gap_mode, substitution_mode, alphabet=PROTEIN)
+    bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
+                    alphabet=PROTEIN)
+    _assert_same_fit(bio, nw, gap_mode, substitution_mode)
+
+
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode",
+                         [("local", "affine", "general"), ("global", "linear", "simple"),
+                          ("global", "affine", "symmetric")])
+def test_long_sequence_trajectory_matches_biopython(mode, gap_mode, substitution_mode):
+    rng = np.random.default_rng(51)
+    A, B, y = make_pairs(rng, 3, 3, 400, sub_rate=0.2, indel_rate=0.05)
+    p0 = random_params(rng, gap_mode, substitution_mode)
+    bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0)
+    _assert_same_fit(bio, nw, gap_mode, substitution_mode)
+
+
+def test_lowercase_sequences_match_biopython():
+    rng, A, B, y = _data(52)
+    A, B = [a.lower() for a in A], [b.lower() for b in B]
+    p0 = random_params(rng, "affine", "general", alphabet="acgt")
+    bio, nw = _both(A, B, y, "local", "affine", "general", initial_parameters=p0)
+    _assert_same_fit(bio, nw, "affine", "general")
+
+
+@pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
+def test_out_of_alphabet_letter_raises(backend):
+    _, A, B, y = _data(53)
+    A[2] = A[2][:3] + "X" + A[2][4:]
+    with pytest.raises(ValueError):
+        discrimalign(A, B, y, aligner_mode="local", gap_mode="affine", substitution_mode="general",
+                     alphabet="ACGT", max_iter=1, stepfunction=create_constant_step(0.01),
+                     backend=backend)
