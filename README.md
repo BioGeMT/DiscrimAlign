@@ -8,6 +8,7 @@ DiscrimAlign is a research codebase for discriminatively learning alignment para
 src/                         Core DiscrimAlign implementation
 tests/                       Unit and integration tests (pytest)
 benchmarks/                   Backend benchmark script
+TODO-nwgrad.md                Follow-ups to the nwgrad backend
 Simulation experiments.ipynb  Simulation experiments for the manuscript
 pyproject.toml                Project environment managed by uv
 case_study_for_mirna/         miRNA case study, trained models, and evaluation instructions
