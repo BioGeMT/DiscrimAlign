@@ -260,14 +260,15 @@ def test_initial_estimate_symmetric_is_symmetrized_general():
 
 
 @pytest.mark.parametrize("substitution_mode", ["general", "symmetric"])
-def test_initial_estimate_full_linear_merges_gap_coefficients(substitution_mode):
+def test_initial_estimate_full_linear_fits_one_gap_coefficient(substitution_mode):
+    """Labels from a linear gap model: every gap column has the same coefficient."""
     rng = np.random.default_rng(4)
-    alns, labels = _fake_full_data(rng, 500, np.eye(3) - 0.3, -0.8, -0.2, -0.3, "ACG")
-    affine = get_initial_estimate(alns, labels, substitution_mode, "affine", "ACG")
-    linear = get_initial_estimate(alns, labels, substitution_mode, "linear", "ACG")
-    assert set(linear) == {"alpha", "substitution_matrix", "gap_score"}
-    assert linear["gap_score"] == pytest.approx(
-        affine["open_gap_score"] + affine["extend_gap_score"])
+    gap = -0.6
+    alns, labels = _fake_full_data(rng, 4000, np.eye(3) - 0.3, gap, gap, -0.3, "ACG")
+    est = get_initial_estimate(alns, labels, substitution_mode, "linear", "ACG")
+    assert set(est) == {"alpha", "substitution_matrix", "gap_score"}
+    # The former open + extend of an affine fit would land near 2 * gap.
+    assert est["gap_score"] == pytest.approx(gap, abs=0.1)
 
 
 def test_initial_estimate_rejects_unknown_modes():

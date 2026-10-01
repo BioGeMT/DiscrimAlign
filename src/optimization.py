@@ -85,20 +85,24 @@ def _initial_estim_lineargap_simplesubs(alignment_list, labels):
                  'gap_score': logit.coef_[0][2]}
     return estimates
 
-def _initial_estim_affinegap_fullsubs(alignment_list, labels,
-                                      alphabet):
+def _initial_estim_fullsubs(alignment_list, labels,
+                            alphabet, gap_mode='affine'):
     """
     Returns an initial estimator of alignment parameters
     using a Ridge logistic model with intercept and
-    a full set of predictors: numbers of gap extends and a substitution matrix
+    a full set of predictors: a substitution matrix plus the numbers of
+    gap opens and gap extends (affine) or of gap columns (linear)
     """
     Asize = len(alphabet)
     predictors = []
     pair_to_id = {(char1, char2): Asize*i + j for i, char1 in enumerate(alphabet) for j, char2 in enumerate(alphabet)}
     for aln in alignment_list:
         counts = aln.counts()
-        gaps = [counts.open_gaps,
-                counts.extend_gaps]
+        if gap_mode == 'affine':
+            gaps = [counts.open_gaps,
+                    counts.extend_gaps]
+        else:
+            gaps = [counts.gaps]
         substitutions = [0]*(Asize**2)
         for char1, char2 in zip(aln[0], aln[1]):
             if char1 != '-' and char2 != '-':
@@ -112,12 +116,13 @@ def _initial_estim_affinegap_fullsubs(alignment_list, labels,
     for char1 in alphabet:
         for char2 in alphabet:
             substitution_matrix[char1, char2] = logit.coef_[0][pair_to_id[(char1, char2)]]
-    open_gap_score = logit.coef_[0][-2]
-    extend_gap_score = logit.coef_[0][-1]
     estimates = {'alpha': logit.intercept_[0],
-                 'substitution_matrix': substitution_matrix,
-                 'open_gap_score': open_gap_score,
-                 'extend_gap_score': extend_gap_score}
+                 'substitution_matrix': substitution_matrix}
+    if gap_mode == 'affine':
+        estimates['open_gap_score'] = logit.coef_[0][-2]
+        estimates['extend_gap_score'] = logit.coef_[0][-1]
+    else:
+        estimates['gap_score'] = logit.coef_[0][-1]
     return estimates
 
 
@@ -140,17 +145,13 @@ def get_initial_estimate(alignment_list, labels,
         elif gap_mode == 'linear':
             estimates = _initial_estim_lineargap_simplesubs(alignment_list, labels)
     else:
-        estimates = _initial_estim_affinegap_fullsubs(alignment_list, labels, alphabet)
+        estimates = _initial_estim_fullsubs(alignment_list, labels, alphabet, gap_mode)
         if substitution_mode == 'symmetric':
             # estimation of symmetric matrix should be implemented in
             # a separate function, for now we use this trick
             subsM = estimates['substitution_matrix']
             subsM = (subsM.T + subsM)/2
             estimates['substitution_matrix'] = subsM
-        if gap_mode == 'linear':
-            estimates['gap_score'] = estimates['open_gap_score']+ estimates['extend_gap_score']
-            del estimates['open_gap_score']
-            del estimates['extend_gap_score']
     return estimates
 
 ### Parallel processing
