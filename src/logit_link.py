@@ -90,9 +90,6 @@ def logit_subgradient(alignment_list, logit_scores,
                 subgradient['Substitutions'][char1, char2] += weight
     return subgradient
 
-def logit_subgradient_nwgrad():
-    pass
-
 if __name__ == '__main__':
     seq1 = 'CCTTTCCCGGGGTCTAAGGGTT'
     seq2 = 'TTACCCAAAATCTGGGCC'

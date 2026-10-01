@@ -37,6 +37,7 @@ def _param_keys(gap_mode, substitution_mode):
 def _run(seqsA, seqsB, labels, mode, gap_mode, substitution_mode, **kwargs):
     kwargs.setdefault("stepfunction", create_constant_step(0.01))
     kwargs.setdefault("max_iter", 2)
+    kwargs.setdefault("backend", "biopython")  # tests that need nwgrad ask for it
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # sklearn convergence noise on tiny data
         return discrimalign(seqsA, seqsB, labels, aligner_mode=mode, gap_mode=gap_mode,

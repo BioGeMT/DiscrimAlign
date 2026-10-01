@@ -149,10 +149,10 @@ def discrimalign(seqlistA, seqlistB,
                  initial_parameters=None,
                  return_alignments=True,
                  verbose=False,
-                 backend='biopython'):
+                 backend='nwgrad'):
     """
     backend selects where alignment scores and subgradients come from:
-    'biopython' (PairwiseAligner) or 'nwgrad'. With 'nwgrad', the initial
+    'nwgrad' (the default) or 'biopython' (PairwiseAligner). With 'nwgrad', the initial
     estimate is fitted on nwgrad's alignments of the baseline too, and a
     baseline_aligner must have uniform gap scores and no wildcard. The
     returned aligner and alignments always use Biopython.
@@ -438,7 +438,3 @@ def discrimalign(seqlistA, seqlistB,
     # results['loglik_expectation_trajectory'] = loglik_expectation
     # results['loglik_sd_trajectory'] = loglik_sd
     return results
-
-def discrimalign_nwgrad(*args, **kwargs):
-    """discrimalign() with backend='nwgrad'."""
-    return discrimalign(*args, backend='nwgrad', **kwargs)

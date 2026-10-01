@@ -12,7 +12,7 @@ import numpy as np
 import pytest
 from Bio.Align import PairwiseAligner, substitution_matrices
 
-from src.discrimalign import _MAX_GAP_SCORE, discrimalign, discrimalign_nwgrad
+from src.discrimalign import _MAX_GAP_SCORE, discrimalign
 from src.nwgrad_backend import baseline_parameters
 from src.optimization import (EmptyLocalAlignment, create_constant_step, create_powerstep,
                               get_initial_estimate_from_counts)
@@ -193,15 +193,15 @@ def test_nwgrad_without_alignments():
     assert "alignments" not in nw
 
 
-def test_discrimalign_nwgrad_is_the_nwgrad_backend():
+def test_default_backend_is_nwgrad():
     rng, A, B, y = _data(9)
     p0 = random_params(rng, "affine", "symmetric")
     kwargs = dict(aligner_mode="local", gap_mode="affine", substitution_mode="symmetric",
                   initial_parameters=p0, max_iter=2, stepfunction=create_constant_step(0.01))
-    wrapped = discrimalign_nwgrad(A, B, y, **kwargs)
-    direct = discrimalign(A, B, y, backend="nwgrad", **kwargs)
+    default = discrimalign(A, B, y, **kwargs)
+    explicit = discrimalign(A, B, y, backend="nwgrad", **kwargs)
     for key in _param_keys("affine", "symmetric") | set(TRAJECTORY_KEYS):
-        np.testing.assert_array_equal(np.asarray(wrapped[key]), np.asarray(direct[key]), err_msg=key)
+        np.testing.assert_array_equal(np.asarray(default[key]), np.asarray(explicit[key]), err_msg=key)
 
 
 @pytest.mark.parametrize("gap_mode, params", [
@@ -242,7 +242,7 @@ def test_unknown_backend_is_rejected():
 def test_nwgrad_missing_stepfunction_raises():
     _, A, B, y = _data(11)
     with pytest.raises(ValueError, match="stepfunction is required"):
-        discrimalign_nwgrad(A, B, y, max_iter=1)
+        discrimalign(A, B, y, max_iter=1, backend="nwgrad")
 
 
 @pytest.mark.slow
