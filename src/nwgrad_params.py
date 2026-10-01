@@ -68,7 +68,7 @@ def grad_to_raw(grad):
     """
     if hasattr(grad, 'to_dict'):
         grad = grad.to_dict()
-    gap_opens, gap_extends = gap_counts(grad)
+    gap_opens, gap_extends = gap_counts(*(grad[field] for field in GAP_FIELDS))
     substitutions = substitution_matrices.Array(alphabet=grad['alphabet'],
                                                 data=np.array(grad['matrix'], dtype=float))
     return {'Substitutions': substitutions,
@@ -76,11 +76,16 @@ def grad_to_raw(grad):
             'Gap extends': gap_extends}
 
 
-def gap_counts(grad):
+# nwgrad's gap fields, in the column order of SeqPairBatch.grads().
+GAP_FIELDS = ('gap_open_a', 'gap_extend_a', 'gap_open_b', 'gap_extend_b')
+
+
+def gap_counts(gap_open_a, gap_extend_a, gap_open_b, gap_extend_b):
     """
     (gap opens, gap extends) in logit_subgradient's sense, from an nwgrad
-    gradient's to_dict(). See grad_to_raw().
+    gradient's gap fields: numbers, or arrays with one entry per pair. See
+    grad_to_raw().
     """
-    gap_open = grad['gap_open_a'] + grad['gap_open_b']
-    gap_extend = grad['gap_extend_a'] + grad['gap_extend_b']
+    gap_open = gap_open_a + gap_open_b
+    gap_extend = gap_extend_a + gap_extend_b
     return -gap_open, gap_open - gap_extend

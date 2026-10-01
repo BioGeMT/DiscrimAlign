@@ -7,7 +7,7 @@ import numpy as np
 import nwgrad
 from Bio.Align import substitution_matrices
 
-from .nwgrad_params import gap_counts, grad_to_raw, to_nwgrad
+from .nwgrad_params import GAP_FIELDS, gap_counts, grad_to_raw, to_nwgrad
 from .optimization import CountArrays
 
 
@@ -97,9 +97,19 @@ class NwgradEngine:
 
     def count_arrays(self):
         """
-        The same per-pair counts as raw_counts(), as CountArrays, without
-        building a dict and a substitution matrix object per pair.
+        The same per-pair counts as raw_counts(), as CountArrays: from one
+        SeqPairBatch.grads() call where nwgrad has it, else pair by pair.
         """
+        if hasattr(self.batch, 'grads') and len(self.batch):
+            return self._count_arrays_bulk()
+        return self._count_arrays_per_pair()
+
+    def _count_arrays_bulk(self):
+        matrices, gaps = self.batch.grads()
+        gap_opens, gap_extends = gap_counts(*gaps.T)
+        return CountArrays(matrices, gap_opens, gap_extends, self.batch.alphabet)
+
+    def _count_arrays_per_pair(self):
         n = len(self.batch)
         substitutions = None
         gap_opens = np.empty(n)
@@ -110,7 +120,7 @@ class NwgradEngine:
                 alphabet = grad['alphabet']
                 substitutions = np.empty((n, len(alphabet), len(alphabet)))
             substitutions[i] = grad['matrix']
-            gap_opens[i], gap_extends[i] = gap_counts(grad)
+            gap_opens[i], gap_extends[i] = gap_counts(*(grad[field] for field in GAP_FIELDS))
         if substitutions is None:
             alphabet = self.alphabet
             substitutions = np.empty((0, len(alphabet), len(alphabet)))

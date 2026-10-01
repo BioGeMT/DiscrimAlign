@@ -9,6 +9,7 @@ import sys
 import warnings
 
 import numpy as np
+import nwgrad
 import pytest
 from Bio.Align import PairwiseAligner, substitution_matrices
 
@@ -111,9 +112,16 @@ def test_nwgrad_initial_estimate_is_fitted_on_nwgrad_counts(mode, gap_mode, subs
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
 
+NWGRAD_HAS_GRADS = hasattr(nwgrad.SeqPairBatchDouble, "grads")
+
+
+@pytest.mark.parametrize("path", [
+    "count_arrays", "_count_arrays_per_pair",
+    pytest.param("_count_arrays_bulk", marks=pytest.mark.skipif(
+        not NWGRAD_HAS_GRADS, reason="nwgrad without SeqPairBatch.grads()"))])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode):
-    """count_arrays() gives exactly the per-pair counts of raw_counts()."""
+def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode, path):
+    """count_arrays(), by either path, gives exactly the per-pair counts of raw_counts()."""
     from src.nwgrad_backend import NwgradEngine
     from src.optimization import _count_arrays_from_raw
     rng, A, B, _ = _data(5, n=20)
@@ -124,7 +132,7 @@ def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode):
                                 (random_params(rng, gap_mode, substitution_mode), None)):
         engine.set_params(params, substitution_mode=params_mode)
         engine.scores()
-        counts = engine.count_arrays()
+        counts = getattr(engine, path)()
         expected = _count_arrays_from_raw(engine.raw_counts())
         assert counts.alphabet == expected.alphabet
         for field in ("substitutions", "gap_opens", "gap_extends"):
