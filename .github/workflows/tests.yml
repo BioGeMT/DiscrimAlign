@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # Until nwgrad 0.5.0 is released, test against this nwgrad commit.
-      NWGRAD_REV: e2f847a01e7879344f2f9174c9397576106db0ad
+      NWGRAD_REV: eeba40acc2cff7b244617355511e049a5815a108
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v10.2.0
