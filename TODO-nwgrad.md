@@ -56,9 +56,12 @@ by making both backends break such ties the same way.
   tables stay in cache. See `TODO.md` in nwgrad. DiscrimAlign therefore resolves
   `num_threads=0` to `os.cpu_count()` itself; long-sequence (protein) workloads
   may do better with physical cores (TODO in `discrimalign()`).
-- **Per-pair gradients in bulk.** The initial estimate reads every pair's
-  gradient through `batch[i].grad.to_dict()`, about 1.4 s per 50,000 pairs. A
-  batch call returning all per-pair gradients as one array would remove that.
+- **Per-pair gradients in bulk.** nwgrad `main` has `SeqPairBatch.grads()`
+  (`c159946`), which returns all per-pair gradients as two arrays. The
+  initial estimate uses it when the installed nwgrad has it, and otherwise
+  falls back to reading `batch[i].grad.to_dict()` pair by pair (about 5x
+  slower). At the next nwgrad release, require it and remove
+  `NwgradEngine._count_arrays_per_pair()`.
 - **float32.** The backend uses nwgrad's double-precision classes with pointer
   traceback. The float32 classes would be faster, but nwgrad's default float32
   traceback can return a suboptimal path, and Biopython works in double.
