@@ -92,19 +92,19 @@ def test_rejects_unknown_modes(kwargs, backend):
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
-@pytest.mark.parametrize("max_iter", [1, 1000])
-def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch, backend):
-    # src/__init__.py rebinds src.discrimalign to the function, so the module
-    # is only reachable through sys.modules.
-    module = sys.modules["src.discrimalign"]
-
-    def fail(*args, **kwargs):
-        raise AssertionError("aligned before validating stepfunction")
-
-    monkeypatch.setattr(module, "_align_pairs", fail)
+def test_missing_stepfunction_defaults_to_powerstep(backend):
     _, A, B, y = _data()
-    with pytest.raises(ValueError, match="stepfunction is required"):
-        discrimalign(A, B, y, backend=backend, max_iter=max_iter)
+    kwargs = dict(backend=backend, aligner_mode="local", gap_mode="affine",
+                  substitution_mode="general", max_iter=3)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        default = discrimalign(A, B, y, **kwargs)
+        explicit = discrimalign(A, B, y, stepfunction=create_powerstep(1e-4), **kwargs)
+    for key in ("loglik_trajectory", "subgradient_l2_trajectory", "alpha",
+                "open_gap_score", "extend_gap_score"):
+        assert default[key] == explicit[key], key
+    np.testing.assert_array_equal(np.asarray(default["substitution_matrix"]),
+                                  np.asarray(explicit["substitution_matrix"]))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -533,3 +533,19 @@ def test_substitution_scores_are_not_projected(backend):
     p0 = random_params(rng, "affine", "simple")
     res = _run_on(backend, A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
     assert res["match_score"] > 0
+
+
+def test_discrimalign_uses_default_stepfunction():
+    result = discrimalign(
+        seqlistA=["AUGCUA", "CUGA"],
+        seqlistB=["AUGGUA", "CUGU"],
+        labels=[1, 0],
+        aligner_mode="local",
+        gap_mode="affine",
+        substitution_mode="symmetric",
+        max_iter=1,
+        num_threads=1,
+    )
+
+    assert "final_loglik" in result
+    assert "alpha" in result

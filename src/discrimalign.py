@@ -9,8 +9,8 @@ from scipy.optimize import minimize
 from copy import deepcopy
 from math import ceil
 import os
-from .optimization import (get_initial_estimate, get_initial_estimate_from_counts,
-                           get_first_alignment)
+from .optimization import (create_powerstep, get_initial_estimate,
+                           get_initial_estimate_from_counts, get_first_alignment)
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 
@@ -166,12 +166,8 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
-    if stepfunction is None and max_iter > 0:
-        raise ValueError(
-            'stepfunction is required when max_iter > 0: pass a function '
-            'mapping the iteration number to a step size, e.g. '
-            'create_powerstep(1e-5) or create_constant_step(1e-5) from '
-            'src.optimization')
+    if stepfunction is None:
+        stepfunction = create_powerstep(1e-4)
     for seqlist, name in ((seqlistA, 'seqlistA'), (seqlistB, 'seqlistB')):
         empty = [i for i, seq in enumerate(seqlist) if len(seq) == 0]
         if empty:

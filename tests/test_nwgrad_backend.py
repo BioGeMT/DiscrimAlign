@@ -268,12 +268,6 @@ def test_unknown_backend_is_rejected():
         discrimalign(A, B, y, max_iter=0, backend="parasail")
 
 
-def test_nwgrad_missing_stepfunction_raises():
-    _, A, B, y = _data(11)
-    with pytest.raises(ValueError, match="stepfunction is required"):
-        discrimalign(A, B, y, max_iter=1, backend="nwgrad")
-
-
 @pytest.mark.slow
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode",
                          [("local", "affine", "symmetric"), ("global", "linear", "simple"),
