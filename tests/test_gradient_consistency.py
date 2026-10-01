@@ -145,6 +145,35 @@ def test_subgradient_matches_finite_differences(mode, gap_mode, substitution_mod
         assert analytic == pytest.approx(numeric, rel=1e-5, abs=1e-6), (key, index)
 
 
+def _nwgrad_loglik(engine, labels, params):
+    engine.set_params(params)
+    z = params["alpha"] + engine.scores()
+    return float(np.sum(np.asarray(labels, dtype=float) * z - np.logaddexp(0.0, z)))
+
+
+@pytest.mark.parametrize("seed", SEEDS)
+@pytest.mark.parametrize("substitution_mode", SUBSTITUTION_MODES)
+@pytest.mark.parametrize("gap_mode", GAP_MODES)
+@pytest.mark.parametrize("mode", MODES)
+def test_nwgrad_subgradient_matches_finite_differences(mode, gap_mode, substitution_mode, seed):
+    """nwgrad's gradient against central differences of nwgrad's own scores, no Biopython."""
+    from src.nwgrad_backend import NwgradEngine
+    rng, seqsA, seqsB, labels = small_fixture(seed)
+    params = random_params(rng, gap_mode, substitution_mode)
+    engine = NwgradEngine(seqsA, seqsB, mode, gap_mode, substitution_mode, DNA, 1)
+    engine.set_params(params)
+    scores = engine.scores()
+    logits = 1 / (1 + np.exp(-(params["alpha"] + scores)))
+    grad = model_gradient(engine.raw_subgradient(logits, labels, params["alpha"]),
+                          gap_mode, substitution_mode)
+    h = 1e-6
+    for key, index, symmetric in _directions(params, substitution_mode):
+        up = _nwgrad_loglik(engine, labels, perturbed(params, key, h, index, symmetric))
+        down = _nwgrad_loglik(engine, labels, perturbed(params, key, -h, index, symmetric))
+        analytic = grad[key] if index is None else grad[key][index]
+        assert analytic == pytest.approx((up - down) / (2 * h), rel=1e-5, abs=1e-6), (key, index)
+
+
 @pytest.mark.parametrize("mode", MODES)
 def test_alpha_derivative_is_sum_of_residuals(mode):
     rng, seqsA, seqsB, labels = small_fixture(11)
