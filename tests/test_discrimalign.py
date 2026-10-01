@@ -63,6 +63,13 @@ def _assert_alpha_stationary(alpha, scores, labels):
     assert alpha == pytest.approx(optimal_alpha(scores, labels), abs=1e-2)
 
 
+BACKENDS = ["biopython", "nwgrad"]
+
+
+def _run_on(backend, *args, **kwargs):
+    return _run(*args, backend=backend, **kwargs)
+
+
 def _assert_params_equal(result, expected, keys, **tol):
     for key in keys:
         np.testing.assert_allclose(np.asarray(result[key]), np.asarray(expected[key]),
@@ -76,14 +83,16 @@ def _assert_params_equal(result, expected, keys, **tol):
     {"gap_mode": "convex"},
     {"substitution_mode": "blosum"},
 ])
-def test_rejects_unknown_modes(kwargs):
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_rejects_unknown_modes(kwargs, backend):
     _, A, B, y = _data()
     with pytest.raises(AssertionError):
-        discrimalign(A, B, y, stepfunction=create_constant_step(0.1), max_iter=1, **kwargs)
+        discrimalign(A, B, y, backend=backend, stepfunction=create_constant_step(0.1), max_iter=1, **kwargs)
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("max_iter", [1, 1000])
-def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch):
+def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch, backend):
     # src/__init__.py rebinds src.discrimalign to the function, so the module
     # is only reachable through sys.modules.
     module = sys.modules["src.discrimalign"]
@@ -94,27 +103,30 @@ def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch):
     monkeypatch.setattr(module, "_align_pairs", fail)
     _, A, B, y = _data()
     with pytest.raises(ValueError, match="stepfunction is required"):
-        discrimalign(A, B, y, max_iter=max_iter)
+        discrimalign(A, B, y, backend=backend, max_iter=max_iter)
 
 
-def test_missing_stepfunction_is_fine_without_iterations():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_missing_stepfunction_is_fine_without_iterations(backend):
     _, A, B, y = _data()
-    res = _run(A, B, y, "local", "affine", "simple", max_iter=0, stepfunction=None)
+    res = _run_on(backend, A, B, y, "local", "affine", "simple", max_iter=0, stepfunction=None)
     assert res["loglik_trajectory"] == [res["final_loglik"]]
 
 
-def test_single_class_labels_without_initial_parameters_raise():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_single_class_labels_without_initial_parameters_raise(backend):
     _, A, B, _ = _data()
     with pytest.raises(ValueError):
-        _run(A, B, np.ones(len(A), dtype=int), "local", "affine", "simple")
+        _run_on(backend, A, B, np.ones(len(A), dtype=int), "local", "affine", "simple")
 
 
 # --- result structure -------------------------------------------------------
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_result_structure(mode, gap_mode, substitution_mode):
+def test_result_structure(mode, gap_mode, substitution_mode, backend):
     _, A, B, y = _data()
-    res = _run(A, B, y, mode, gap_mode, substitution_mode, max_iter=3)
+    res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, max_iter=3)
     expected = _param_keys(gap_mode, substitution_mode) | {
         "loglik_trajectory", "subgradient_l2_trajectory", "final_loglik",
         "aligner", "alignments", "alignment_logit_scores", "alpha"}
@@ -131,11 +143,12 @@ def test_result_structure(mode, gap_mode, substitution_mode):
         assert "".join(res["substitution_matrix"].alphabet) == DNA
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode):
+def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode, backend):
     rng, A, B, y = _data(1)
     p0 = random_params(rng, gap_mode, substitution_mode)
-    res = _run(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0)
+    res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0)
     realigned = align_all(A, B, res["aligner"])
     scores = np.array([a.score for a in res["alignments"]])
     np.testing.assert_array_equal(scores, [a.score for a in realigned])
@@ -146,20 +159,22 @@ def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode):
     assert [a.score for a in realigned] == [a.score for a in align_all(A, B, reference)]
 
 
-def test_return_alignments_false_omits_alignments():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_return_alignments_false_omits_alignments(backend):
     _, A, B, y = _data()
-    res = _run(A, B, y, "local", "affine", "simple", return_alignments=False)
+    res = _run_on(backend, A, B, y, "local", "affine", "simple", return_alignments=False)
     assert "alignments" not in res
     assert len(res["alignment_logit_scores"]) == len(A)
 
 
 # --- zero iterations and zero steps -----------------------------------------
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_zero_iterations_return_initial_parameters(mode, gap_mode, substitution_mode):
+def test_zero_iterations_return_initial_parameters(mode, gap_mode, substitution_mode, backend):
     rng, A, B, y = _data(2)
     p0 = random_params(rng, gap_mode, substitution_mode)
-    res = _run(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
+    res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
                max_iter=0, stepfunction=None)
     _assert_params_equal(res, p0, _param_keys(gap_mode, substitution_mode))
     assert res["alpha"] == p0["alpha"]
@@ -168,11 +183,12 @@ def test_zero_iterations_return_initial_parameters(mode, gap_mode, substitution_
     assert res["final_loglik"] == pytest.approx(logit_logL(expit(p0["alpha"] + scores), y))
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_zero_step_keeps_parameters_and_fits_alpha(mode, gap_mode, substitution_mode):
+def test_zero_step_keeps_parameters_and_fits_alpha(mode, gap_mode, substitution_mode, backend):
     rng, A, B, y = _data(3)
     p0 = random_params(rng, gap_mode, substitution_mode)
-    res = _run(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
+    res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
                max_iter=3, stepfunction=create_constant_step(0.0))
     _assert_params_equal(res, p0, _param_keys(gap_mode, substitution_mode))
     scores = np.array([a.score for a in res["alignments"]])
@@ -212,12 +228,13 @@ def test_one_iteration_is_one_subgradient_step(mode, gap_mode, substitution_mode
     assert res["loglik_trajectory"][0] == pytest.approx(logit_logL(expit(p0["alpha"] + scores), y))
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode", MODES)
-def test_small_step_increases_likelihood_at_fixed_alpha(mode):
+def test_small_step_increases_likelihood_at_fixed_alpha(mode, backend):
     """A short step along the subgradient is an ascent direction."""
     rng, A, B, y = _data(6, n=16)
     p0 = random_params(rng, "affine", "general")
-    res = _run(A, B, y, mode, "affine", "general", initial_parameters=p0,
+    res = _run_on(backend, A, B, y, mode, "affine", "general", initial_parameters=p0,
                max_iter=1, stepfunction=create_constant_step(1e-4))
     p0_fitted = dict(p0, alpha=res["alpha"])
     p1 = {k: res[k] for k in _param_keys("affine", "general")}
@@ -232,32 +249,35 @@ def test_small_step_increases_likelihood_at_fixed_alpha(mode):
 
 # --- invariants over several iterations -------------------------------------
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode", [(m, g) for m in MODES for g in GAP_MODES])
-def test_symmetric_mode_keeps_matrix_symmetric(mode, gap_mode):
+def test_symmetric_mode_keeps_matrix_symmetric(mode, gap_mode, backend):
     _, A, B, y = _data(7)
-    res = _run(A, B, y, mode, gap_mode, "symmetric", max_iter=4,
+    res = _run_on(backend, A, B, y, mode, gap_mode, "symmetric", max_iter=4,
                stepfunction=create_powerstep(0.05))
     M = np.asarray(res["substitution_matrix"])
     np.testing.assert_allclose(M, M.T, atol=1e-12)
 
 
-def test_general_mode_can_become_asymmetric():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_general_mode_can_become_asymmetric(backend):
     rng, A, B, y = _data(8)
     p0 = random_params(rng, "affine", "symmetric")
-    res = _run(A, B, y, "global", "affine", "general", initial_parameters=p0,
+    res = _run_on(backend, A, B, y, "global", "affine", "general", initial_parameters=p0,
                max_iter=2, stepfunction=create_constant_step(0.05))
     M = np.asarray(res["substitution_matrix"])
     assert not np.allclose(M, M.T)
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_inputs_are_not_mutated(mode, gap_mode, substitution_mode):
+def test_inputs_are_not_mutated(mode, gap_mode, substitution_mode, backend):
     rng, A, B, y = _data(9)
     p0 = random_params(rng, gap_mode, substitution_mode)
     baseline = make_aligner(mode, random_params(rng, gap_mode, substitution_mode))
     snapshot = (deepcopy(p0), list(A), list(B), y.copy(),
                 [a.score for a in align_all(A, B, baseline)])
-    _run(A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
+    _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0,
          baseline_aligner=baseline, max_iter=2, stepfunction=create_constant_step(0.1))
     _assert_params_equal(p0, snapshot[0], p0.keys())
     assert (A, B) == (snapshot[1], snapshot[2])
@@ -265,24 +285,26 @@ def test_inputs_are_not_mutated(mode, gap_mode, substitution_mode):
     assert [a.score for a in align_all(A, B, baseline)] == snapshot[4]
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode",
                          [("local", "affine", "symmetric"), ("global", "linear", "simple")])
-def test_thread_count_does_not_change_results(mode, gap_mode, substitution_mode):
+def test_thread_count_does_not_change_results(mode, gap_mode, substitution_mode, backend):
     _, A, B, y = _data(10, n=20)
-    one = _run(A, B, y, mode, gap_mode, substitution_mode, max_iter=3, num_threads=1)
-    four = _run(A, B, y, mode, gap_mode, substitution_mode, max_iter=3, num_threads=4)
+    one = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, max_iter=3, num_threads=1)
+    four = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, max_iter=3, num_threads=4)
     _assert_params_equal(four, one, _param_keys(gap_mode, substitution_mode), rtol=0, atol=0)
     assert four["loglik_trajectory"] == one["loglik_trajectory"]
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("gap_mode, substitution_mode",
                          [("affine", "simple"), ("linear", "general"), ("affine", "symmetric")])
-def test_subgradient_scale_is_equivalent_to_scaled_step(gap_mode, substitution_mode):
+def test_subgradient_scale_is_equivalent_to_scaled_step(gap_mode, substitution_mode, backend):
     rng, A, B, y = _data(11)
     p0 = random_params(rng, gap_mode, substitution_mode)
-    scaled = _run(A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
+    scaled = _run_on(backend, A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
                   max_iter=3, subgradient_scale=0.5, stepfunction=create_constant_step(0.02))
-    plain = _run(A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
+    plain = _run_on(backend, A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
                  max_iter=3, stepfunction=create_constant_step(0.01))
     _assert_params_equal(scaled, plain, _param_keys(gap_mode, substitution_mode), rtol=1e-12)
     np.testing.assert_allclose(scaled["subgradient_l2_trajectory"],
@@ -291,25 +313,27 @@ def test_subgradient_scale_is_equivalent_to_scaled_step(gap_mode, substitution_m
 
 # --- stochastic_factor ------------------------------------------------------
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("substitution_mode", SUBSTITUTION_MODES)
-def test_stochastic_factor_is_reproducible_under_global_seed(substitution_mode):
+def test_stochastic_factor_is_reproducible_under_global_seed(substitution_mode, backend):
     rng, A, B, y = _data(12)
     p0 = random_params(rng, "affine", substitution_mode)
     runs = []
     for _ in range(2):
         np.random.seed(123)
-        runs.append(_run(A, B, y, "local", "affine", substitution_mode, initial_parameters=p0,
+        runs.append(_run_on(backend, A, B, y, "local", "affine", substitution_mode, initial_parameters=p0,
                          stochastic_factor=0.5, max_iter=2))
     keys = _param_keys("affine", substitution_mode)
     _assert_params_equal(runs[0], runs[1], keys, rtol=0, atol=0)
-    quiet = _run(A, B, y, "local", "affine", substitution_mode, initial_parameters=p0, max_iter=2)
+    quiet = _run_on(backend, A, B, y, "local", "affine", substitution_mode, initial_parameters=p0, max_iter=2)
     assert any(not np.allclose(np.asarray(runs[0][k]), np.asarray(quiet[k])) for k in keys)
 
 
-def test_symmetric_mode_stays_symmetric_with_noise():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_symmetric_mode_stays_symmetric_with_noise(backend):
     rng, A, B, y = _data(13)
     np.random.seed(7)
-    res = _run(A, B, y, "global", "affine", "symmetric",
+    res = _run_on(backend, A, B, y, "global", "affine", "symmetric",
                initial_parameters=random_params(rng, "affine", "symmetric"),
                stochastic_factor=1.0, max_iter=3)
     M = np.asarray(res["substitution_matrix"])
@@ -318,51 +342,57 @@ def test_symmetric_mode_stays_symmetric_with_noise():
 
 # --- alphabet handling ------------------------------------------------------
 
-def test_alphabet_inferred_from_sequences_is_sorted_union():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_alphabet_inferred_from_sequences_is_sorted_union(backend):
     A = ["GATTACA", "CAT", "TAG", "GGT"]
     B = ["GATACA", "CAT", "ACG", "TTT"]
-    res = _run(A, B, np.array([1, 1, 0, 0]), "local", "affine", "general", max_iter=1)
+    res = _run_on(backend, A, B, np.array([1, 1, 0, 0]), "local", "affine", "general", max_iter=1)
     assert "".join(res["substitution_matrix"].alphabet) == "ACGT"
 
 
-def test_alphabet_taken_from_initial_parameters():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_alphabet_taken_from_initial_parameters(backend):
     rng, A, B, y = _data(14)
     p0 = random_params(rng, "affine", "general", alphabet="TGCA")
-    res = _run(A, B, y, "local", "affine", "general", initial_parameters=p0, max_iter=1)
+    res = _run_on(backend, A, B, y, "local", "affine", "general", initial_parameters=p0, max_iter=1)
     assert "".join(res["substitution_matrix"].alphabet) == "TGCA"
 
 
-def test_alphabet_taken_from_baseline_aligner():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_alphabet_taken_from_baseline_aligner(backend):
     rng, A, B, y = _data(15)
     baseline = make_aligner("local", random_params(rng, "affine", "general", alphabet="CATG"))
-    res = _run(A, B, y, "local", "affine", "general", baseline_aligner=baseline, max_iter=1)
+    res = _run_on(backend, A, B, y, "local", "affine", "general", baseline_aligner=baseline, max_iter=1)
     assert "".join(res["substitution_matrix"].alphabet) == "CATG"
 
 
-def test_explicit_alphabet_wins():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_explicit_alphabet_wins(backend):
     _, A, B, y = _data(16)
-    res = _run(A, B, y, "local", "affine", "general", alphabet="GTAC", max_iter=1)
+    res = _run_on(backend, A, B, y, "local", "affine", "general", alphabet="GTAC", max_iter=1)
     assert "".join(res["substitution_matrix"].alphabet) == "GTAC"
 
 
-def test_explicit_alphabet_missing_a_letter_fails():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_explicit_alphabet_missing_a_letter_fails(backend):
     _, A, B, y = _data(17)
     with pytest.raises((KeyError, IndexError, ValueError)):
-        _run(A, B, y, "local", "affine", "general", alphabet="ACG", max_iter=1)
+        _run_on(backend, A, B, y, "local", "affine", "general", alphabet="ACG", max_iter=1)
 
 
-def test_protein_alphabet():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_protein_alphabet(backend):
     rng = np.random.default_rng(18)
     protein = "ACDEFGHIKLMNPQRSTVWY"
     A, B, y = make_pairs(rng, 5, 5, 15, alphabet=protein, sub_rate=0.2)
-    res = _run(A, B, y, "local", "affine", "symmetric", alphabet=protein, max_iter=2)
+    res = _run_on(backend, A, B, y, "local", "affine", "symmetric", alphabet=protein, max_iter=2)
     assert np.asarray(res["substitution_matrix"]).shape == (20, 20)
 
 
 # --- baselines used for the initial estimate --------------------------------
 
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_initial_estimate_usesdefault_baseline(mode, gap_mode, substitution_mode):
+def test_initial_estimate_uses_default_baseline(mode, gap_mode, substitution_mode):
     _, A, B, y = _data(19, n=20)
     res = _run(A, B, y, mode, gap_mode, substitution_mode, max_iter=0, stepfunction=None)
     with warnings.catch_warnings():
@@ -375,10 +405,11 @@ def test_initial_estimate_usesdefault_baseline(mode, gap_mode, substitution_mode
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
 
-def test_initial_estimate_uses_given_baseline_aligner():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_initial_estimate_uses_given_baseline_aligner(backend):
     rng, A, B, y = _data(20, n=20)
     baseline = make_aligner("global", random_params(rng, "linear", "simple"))
-    res = _run(A, B, y, "global", "linear", "simple", baseline_aligner=baseline,
+    res = _run_on(backend, A, B, y, "global", "linear", "simple", baseline_aligner=baseline,
                max_iter=0, stepfunction=None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
@@ -389,41 +420,45 @@ def test_initial_estimate_uses_given_baseline_aligner():
 
 # --- data edge cases --------------------------------------------------------
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("gap_mode, substitution_mode", [("affine", "simple"), ("linear", "general")])
-def test_local_pairs_without_alignment(gap_mode, substitution_mode):
+def test_local_pairs_without_alignment(gap_mode, substitution_mode, backend):
     A = ["AAAA", "ACGT", "CCCC", "ACGTAC", "GGGG", "ACGA"]
     B = ["CCCC", "ACGT", "GGGG", "ACGTAC", "TTTT", "ACGT"]
     y = np.array([0, 1, 0, 1, 0, 1])
     rng = np.random.default_rng(21)
     p0 = random_params(rng, gap_mode, substitution_mode)
-    res = _run(A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
+    res = _run_on(backend, A, B, y, "local", gap_mode, substitution_mode, initial_parameters=p0,
                max_iter=2)
     for i in (0, 2, 4):
         assert isinstance(res["alignments"][i], EmptyLocalAlignment)
         assert res["alignment_logit_scores"][i] == pytest.approx(expit(res["alpha"]))
 
 
-def test_single_residue_sequences():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_single_residue_sequences(backend):
     A = ["A", "C", "G", "T", "A", "C"]
     B = ["A", "C", "G", "A", "C", "T"]
     y = np.array([1, 1, 1, 0, 0, 0])
     rng = np.random.default_rng(22)
-    res = _run(A, B, y, "global", "affine", "general",
+    res = _run_on(backend, A, B, y, "global", "affine", "general",
                initial_parameters=random_params(rng, "affine", "general"), max_iter=3)
     assert np.all(np.isfinite(np.asarray(res["substitution_matrix"])))
 
 
-def test_list_labels_behave_like_array_labels():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_list_labels_behave_like_array_labels(backend):
     rng, A, B, y = _data(23)
     p0 = random_params(rng, "affine", "simple")
-    as_array = _run(A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
-    as_list = _run(A, B, list(y), "local", "affine", "simple", initial_parameters=p0, max_iter=2)
+    as_array = _run_on(backend, A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
+    as_list = _run_on(backend, A, B, list(y), "local", "affine", "simple", initial_parameters=p0, max_iter=2)
     _assert_params_equal(as_list, as_array, _param_keys("affine", "simple"), rtol=0, atol=0)
 
 
-def test_verbose_prints_progress(capsys):
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_verbose_prints_progress(capsys, backend):
     rng, A, B, y = _data(24)
-    _run(A, B, y, "local", "affine", "simple",
+    _run_on(backend, A, B, y, "local", "affine", "simple",
          initial_parameters=random_params(rng, "affine", "simple"), max_iter=1, verbose=True)
     out = capsys.readouterr().out
     assert "Alphabet:" in out
@@ -473,8 +508,9 @@ def test_gap_scores_never_become_positive(mode, gap_mode, backend):
     assert hits_cap
 
 
-def test_substitution_scores_are_not_projected():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_substitution_scores_are_not_projected(backend):
     rng, A, B, y = _data(30)
     p0 = random_params(rng, "affine", "simple")
-    res = _run(A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
+    res = _run_on(backend, A, B, y, "local", "affine", "simple", initial_parameters=p0, max_iter=2)
     assert res["match_score"] > 0
