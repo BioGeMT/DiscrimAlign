@@ -155,3 +155,27 @@ uv run python case_study_for_mirna/case_study_mirna.py \
 ```
 
 The metrics for the user-provided set are added to the same output files as the miRBench evaluation splits.
+
+## Inference with bundled trained models
+
+The repository includes two fitted miRNA case-study models:
+
+- `case_study_for_mirna/trained_models/manakov_best_model.pkl`
+- `case_study_for_mirna/trained_models/hejret_best_model.pkl`
+
+Create a CSV with sequence-pair columns, or use the ready-to-run example at `examples/mirna_pairs.csv`:
+
+```csv
+id,sequence_a,sequence_b
+pair_1,AUGCUA,AUGGUA
+pair_2,CUGA,CUGU
+```
+
+Run inference with either built-in model alias:
+
+```bash
+uv run python -m src.infer --model manakov --input examples/mirna_pairs.csv --output predictions_manakov.csv
+uv run python -m src.infer --model hejret --input examples/mirna_pairs.csv --output predictions_hejret.csv
+```
+
+The output CSV includes the original sequences, normalized sequences, alignment score, logistic probability, aligned sequences, alignment markers, and per-position operations. The default `--normalize auto` converts `U`/`T` as needed to match the trained model alphabet.

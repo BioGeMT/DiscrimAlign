@@ -8,7 +8,7 @@ from numpy import random as rd
 from scipy.optimize import minimize
 from copy import deepcopy
 from math import ceil
-from .optimization import get_initial_estimate, get_first_alignment
+from .optimization import create_powerstep, get_initial_estimate, get_first_alignment
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 
@@ -91,6 +91,8 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
+    if stepfunction is None:
+        stepfunction = create_powerstep(1e-4)
     if alphabet is None:
         alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
     if alphabet is None:
