@@ -3,14 +3,15 @@ import warnings
 
 import numpy as np
 import pytest
-from Bio.Align import PairwiseAligner
+from Bio.Align import PairwiseAligner, substitution_matrices
 from joblib import Parallel
 from scipy.special import expit
 
 from src.optimization import (EmptyAlignmentCounts, EmptyLocalAlignment,
+                              _count_arrays_from_raw, _count_features, _fit_initial_estimate,
                               create_alignment_workers, create_constant_step,
                               create_powerstep, get_first_alignment,
-                              get_initial_estimate)
+                              get_initial_estimate, get_initial_estimate_from_counts)
 from tests.helpers import DNA, align_all, make_aligner, make_pairs, random_params
 
 
@@ -325,3 +326,81 @@ def test_initial_estimate_accepts_empty_local_alignments():
         warnings.simplefilter("ignore")
         est = get_initial_estimate(alns, labels, "general", "affine", "ACGT")
     assert np.all(np.isfinite(np.asarray(est["substitution_matrix"])))
+
+
+# --- count features ----------------------------------------------------------
+
+def _reference_count_features(raw_counts_list, substitution_mode, gap_mode, alphabet):
+    """The per-row implementation that _count_features() replaced."""
+    predictors = []
+    for raw in raw_counts_list:
+        subs = raw['Substitutions']
+        G = np.asarray(subs)
+        opens, extends = raw['Gap opens'], raw['Gap extends']
+        gaps = [opens, extends] if gap_mode == 'affine' else [opens + extends]
+        if substitution_mode == 'simple':
+            predictors.append([np.trace(G), G.sum() - np.trace(G)] + gaps)
+        else:
+            order = [subs.alphabet.index(char) for char in alphabet]
+            predictors.append(list(G[np.ix_(order, order)].ravel()) + gaps)
+    return predictors
+
+
+def _random_raw_counts(rng, n, count_alphabet):
+    """Counts as grad_to_raw() returns them, over count_alphabet."""
+    k = len(count_alphabet)
+    return [{'Substitutions': substitution_matrices.Array(
+                 alphabet=count_alphabet, data=rng.poisson(1.5, (k, k)).astype(float)),
+             'Gap opens': float(rng.poisson(1)),
+             'Gap extends': float(rng.poisson(2))} for _ in range(n)]
+
+
+# Counts over the fit's alphabet, a permutation of it, and a superset of it.
+COUNT_ALPHABETS = [DNA, "TGCA", "ACGTN"]
+
+
+@pytest.mark.parametrize("count_alphabet", COUNT_ALPHABETS)
+@pytest.mark.parametrize("gap_mode", ["affine", "linear"])
+@pytest.mark.parametrize("substitution_mode", ["simple", "symmetric", "general"])
+def test_count_features_match_per_row_reference(substitution_mode, gap_mode, count_alphabet):
+    raws = _random_raw_counts(np.random.default_rng(0), 40, count_alphabet)
+    expected = np.asarray(_reference_count_features(raws, substitution_mode, gap_mode, DNA),
+                          dtype=float)
+    for counts in (raws, _count_arrays_from_raw(raws)):
+        features = _count_features(counts, substitution_mode, gap_mode, DNA)
+        assert features.dtype == np.float64
+        np.testing.assert_array_equal(features, expected)
+
+
+def test_count_arrays_from_raw_reorders_to_the_first_alphabet():
+    rng = np.random.default_rng(1)
+    raws = _random_raw_counts(rng, 3, DNA) + _random_raw_counts(rng, 2, "TGCA")
+    counts = _count_arrays_from_raw(raws)
+    assert counts.alphabet == DNA
+    for i, raw in enumerate(raws):
+        for a, x in enumerate(DNA):
+            for b, z in enumerate(DNA):
+                assert counts.substitutions[i, a, b] == raw['Substitutions'][x, z]
+    np.testing.assert_array_equal(counts.gap_opens, [r['Gap opens'] for r in raws])
+    np.testing.assert_array_equal(counts.gap_extends, [r['Gap extends'] for r in raws])
+
+
+@pytest.mark.parametrize("gap_mode", ["affine", "linear"])
+@pytest.mark.parametrize("substitution_mode", ["simple", "symmetric", "general"])
+def test_initial_estimate_from_counts_is_unchanged(substitution_mode, gap_mode):
+    rng = np.random.default_rng(2)
+    raws = _random_raw_counts(rng, 60, "TGCA")
+    labels = rng.integers(0, 2, len(raws))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        reference = _fit_initial_estimate(
+            _reference_count_features(raws, substitution_mode, gap_mode, DNA),
+            labels, substitution_mode, gap_mode, DNA)
+        from_list = get_initial_estimate_from_counts(raws, labels, substitution_mode, gap_mode, DNA)
+        from_arrays = get_initial_estimate_from_counts(_count_arrays_from_raw(raws), labels,
+                                                       substitution_mode, gap_mode, DNA)
+    for estimate in (from_list, from_arrays):
+        assert estimate.keys() == reference.keys()
+        for key in reference:
+            np.testing.assert_array_equal(np.asarray(estimate[key]), np.asarray(reference[key]),
+                                          err_msg=key)

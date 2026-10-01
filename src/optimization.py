@@ -1,3 +1,5 @@
+from typing import NamedTuple
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
 from Bio.Align import substitution_matrices
@@ -63,27 +65,63 @@ def _alignment_features(alignment_list, substitution_mode, gap_mode, alphabet):
     return predictors
 
 
-def _count_features(raw_counts_list, substitution_mode, gap_mode, alphabet):
+class CountArrays(NamedTuple):
     """
-    The same predictors as _alignment_features(), from per-alignment counts in
-    logit_subgradient's format ({'Substitutions', 'Gap opens', 'Gap extends'}),
-    such as nwgrad's per-pair gradients converted by grad_to_raw(). In linear
-    mode only the total number of gap columns is used, which is all that
-    nwgrad reports there.
+    Per-alignment counts in logit_subgradient's sense, one row per alignment:
+    substitutions (N, A, A) with rows and columns in the order of alphabet,
+    and gap_opens and gap_extends (N,).
     """
-    predictors = []
-    for raw in raw_counts_list:
+    substitutions: np.ndarray
+    gap_opens: np.ndarray
+    gap_extends: np.ndarray
+    alphabet: str
+
+
+def _count_arrays_from_raw(raw_counts_list):
+    """
+    CountArrays from a list of counts in logit_subgradient's format, in the
+    alphabet order of the first one.
+    """
+    n = len(raw_counts_list)
+    alphabet = ''.join(raw_counts_list[0]['Substitutions'].alphabet) if n else ''
+    substitutions = np.empty((n, len(alphabet), len(alphabet)))
+    gap_opens = np.empty(n)
+    gap_extends = np.empty(n)
+    for i, raw in enumerate(raw_counts_list):
         subs = raw['Substitutions']
-        G = np.asarray(subs)
-        opens, extends = raw['Gap opens'], raw['Gap extends']
-        gaps = [opens, extends] if gap_mode == 'affine' else [opens + extends]
-        if substitution_mode == 'simple':
-            predictors.append([np.trace(G), G.sum() - np.trace(G)] + gaps)
-        else:
-            # Rows and columns in the order of alphabet, whatever the order of subs.
-            order = [subs.alphabet.index(char) for char in alphabet]
-            predictors.append(list(G[np.ix_(order, order)].ravel()) + gaps)
-    return predictors
+        order = [subs.alphabet.index(char) for char in alphabet]
+        substitutions[i] = np.asarray(subs)[np.ix_(order, order)]
+        gap_opens[i] = raw['Gap opens']
+        gap_extends[i] = raw['Gap extends']
+    return CountArrays(substitutions, gap_opens, gap_extends, alphabet)
+
+
+def _count_features(counts, substitution_mode, gap_mode, alphabet):
+    """
+    The same predictors as _alignment_features(), as an (N, p) array, from
+    per-alignment counts: CountArrays, or a list in logit_subgradient's format
+    ({'Substitutions', 'Gap opens', 'Gap extends'}), such as nwgrad's per-pair
+    gradients converted by grad_to_raw(). In linear mode only the total number
+    of gap columns is used, which is all that nwgrad reports there.
+    """
+    if not isinstance(counts, CountArrays):
+        counts = _count_arrays_from_raw(counts)
+    S = counts.substitutions
+    gaps = ([counts.gap_opens, counts.gap_extends] if gap_mode == 'affine'
+            else [counts.gap_opens + counts.gap_extends])
+    if substitution_mode == 'simple':
+        matches = np.trace(S, axis1=1, axis2=2)
+        columns = [matches, S.sum(axis=(1, 2)) - matches] + gaps
+        return np.column_stack(columns) if len(S) else np.empty((0, len(columns)))
+    # Rows and columns in the order of alphabet, whatever the order of the counts.
+    if alphabet != counts.alphabet:
+        order = [counts.alphabet.index(char) for char in alphabet]
+        S = S[:, order][:, :, order]
+    features = np.empty((len(S), len(alphabet)**2 + len(gaps)))
+    features[:, :len(alphabet)**2] = S.reshape(len(S), -1)
+    for k, column in enumerate(gaps, start=len(alphabet)**2):
+        features[:, k] = column
+    return features
 
 
 def _fit_initial_estimate(predictors, labels, substitution_mode, gap_mode, alphabet):
@@ -142,16 +180,16 @@ def get_initial_estimate(alignment_list, labels,
     return _fit_initial_estimate(predictors, labels, substitution_mode, gap_mode, alphabet)
 
 
-def get_initial_estimate_from_counts(raw_counts_list, labels,
+def get_initial_estimate_from_counts(counts, labels,
                                      substitution_mode='simple',
                                      gap_mode='affine',
                                      alphabet=None):
     """
-    get_initial_estimate() from per-alignment counts in logit_subgradient's
-    format instead of alignment objects.
+    get_initial_estimate() from per-alignment counts instead of alignment
+    objects: CountArrays, or a list in logit_subgradient's format.
     """
     _check_estimate_modes(substitution_mode, gap_mode, alphabet)
-    predictors = _count_features(raw_counts_list, substitution_mode, gap_mode, alphabet)
+    predictors = _count_features(counts, substitution_mode, gap_mode, alphabet)
     return _fit_initial_estimate(predictors, labels, substitution_mode, gap_mode, alphabet)
 
 ### Parallel processing

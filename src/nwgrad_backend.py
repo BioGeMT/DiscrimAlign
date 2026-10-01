@@ -7,7 +7,8 @@ import numpy as np
 import nwgrad
 from Bio.Align import substitution_matrices
 
-from .nwgrad_params import grad_to_raw, to_nwgrad
+from .nwgrad_params import gap_counts, grad_to_raw, to_nwgrad
+from .optimization import CountArrays
 
 
 def baseline_parameters(aligner, gap_mode, alphabet):
@@ -93,6 +94,27 @@ class NwgradEngine:
     def raw_counts(self):
         """Per-pair counts in logit_subgradient's format, for the scores just computed."""
         return [grad_to_raw(self.batch[i].grad) for i in range(len(self.batch))]
+
+    def count_arrays(self):
+        """
+        The same per-pair counts as raw_counts(), as CountArrays, without
+        building a dict and a substitution matrix object per pair.
+        """
+        n = len(self.batch)
+        substitutions = None
+        gap_opens = np.empty(n)
+        gap_extends = np.empty(n)
+        for i in range(n):
+            grad = self.batch[i].grad.to_dict()
+            if substitutions is None:
+                alphabet = grad['alphabet']
+                substitutions = np.empty((n, len(alphabet), len(alphabet)))
+            substitutions[i] = grad['matrix']
+            gap_opens[i], gap_extends[i] = gap_counts(grad)
+        if substitutions is None:
+            alphabet = self.alphabet
+            substitutions = np.empty((0, len(alphabet), len(alphabet)))
+        return CountArrays(substitutions, gap_opens, gap_extends, alphabet)
 
     def raw_subgradient(self, logit_scores, labels, alpha):
         """

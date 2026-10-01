@@ -250,7 +250,7 @@ def discrimalign(seqlistA, seqlistB,
         engine.set_params(baseline_parameters(aligner, gap_mode, alphabet),
                           substitution_mode='general')
         engine.scores()
-        updated_parameters = get_initial_estimate_from_counts(engine.raw_counts(), labels,
+        updated_parameters = get_initial_estimate_from_counts(engine.count_arrays(), labels,
                                                               substitution_mode=substitution_mode,
                                                               gap_mode=gap_mode,
                                                               alphabet=alphabet)

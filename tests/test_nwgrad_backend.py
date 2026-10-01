@@ -111,6 +111,27 @@ def test_nwgrad_initial_estimate_is_fitted_on_nwgrad_counts(mode, gap_mode, subs
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
 
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode):
+    """count_arrays() gives exactly the per-pair counts of raw_counts()."""
+    from src.nwgrad_backend import NwgradEngine
+    from src.optimization import _count_arrays_from_raw
+    rng, A, B, _ = _data(5, n=20)
+    engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 2)
+    baseline = baseline_parameters(default_baseline(mode, gap_mode, substitution_mode),
+                                   gap_mode, "ACGT")
+    for params, params_mode in ((baseline, "general"),
+                                (random_params(rng, gap_mode, substitution_mode), None)):
+        engine.set_params(params, substitution_mode=params_mode)
+        engine.scores()
+        counts = engine.count_arrays()
+        expected = _count_arrays_from_raw(engine.raw_counts())
+        assert counts.alphabet == expected.alphabet
+        for field in ("substitutions", "gap_opens", "gap_extends"):
+            np.testing.assert_array_equal(getattr(counts, field), getattr(expected, field),
+                                          err_msg=field)
+
+
 @pytest.mark.parametrize("initial", [True, False])
 def test_nwgrad_backend_needs_no_biopython_alignment(initial, monkeypatch):
     """Without returned alignments, the nwgrad path never aligns with Biopython."""
