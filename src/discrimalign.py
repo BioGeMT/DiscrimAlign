@@ -144,7 +144,7 @@ def discrimalign(seqlistA, seqlistB,
                  stochastic_factor=None,
                  stepfunction=None,
                  max_iter=1000, tol=1e-3,
-                 num_threads=1,
+                 num_threads=0,
                  subgradient_scale=1.0,
                  initial_parameters=None,
                  return_alignments=True,
@@ -157,7 +157,9 @@ def discrimalign(seqlistA, seqlistB,
     baseline_aligner must have uniform gap scores and no wildcard. The
     returned aligner and alignments always use Biopython.
 
-    num_threads=0 uses all logical cores.
+    num_threads=0 (the default) picks the thread count automatically: all
+    logical cores with 'nwgrad', 1 with 'biopython', whose threads contend
+    for the GIL and only slow it down.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -175,7 +177,9 @@ def discrimalign(seqlistA, seqlistB,
         if empty:
             raise ValueError(f'{name} contains empty sequences (at indices {empty[:10]}); '
                              'every sequence needs at least one residue')
-    if num_threads == 0:
+    if num_threads == 0 and backend == 'biopython':
+        num_threads = 1
+    elif num_threads == 0:
         # All logical cores, passed to nwgrad explicitly rather than its own
         # n_threads=0, which picks physical cores: short pairs such as
         # miRNA-target sites gain about 25% from SMT on hosts that have it.

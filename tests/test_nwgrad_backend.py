@@ -374,26 +374,36 @@ def test_out_of_alphabet_letter_raises(backend):
                      backend=backend)
 
 
+@pytest.mark.parametrize("explicit", [True, False])
 @pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
-def test_zero_threads_means_all_logical_cores(backend, monkeypatch):
+def test_automatic_thread_count(backend, explicit, monkeypatch):
+    """num_threads=0, the default: all logical cores with nwgrad, 1 with Biopython."""
     import src.nwgrad_backend as nwgrad_backend
+    module = sys.modules["src.discrimalign"]
     seen = []
-    original = nwgrad_backend.NwgradEngine.__init__
+    engine_init = nwgrad_backend.NwgradEngine.__init__
+    align_pairs = module._align_pairs
 
-    def spy(self, *args):
+    def spy_engine(self, *args):
         seen.append(args[-1])
-        original(self, *args)
+        engine_init(self, *args)
 
-    monkeypatch.setattr(nwgrad_backend.NwgradEngine, "__init__", spy)
-    monkeypatch.setattr(sys.modules["src.discrimalign"].os, "cpu_count", lambda: 3)
+    def spy_align(seqsA, seqsB, aligner, num_threads):
+        seen.append(num_threads)
+        return align_pairs(seqsA, seqsB, aligner, num_threads)
+
+    monkeypatch.setattr(nwgrad_backend.NwgradEngine, "__init__", spy_engine)
+    monkeypatch.setattr(module, "_align_pairs", spy_align)
+    monkeypatch.setattr(module.os, "cpu_count", lambda: 3)
     rng, A, B, y = _data(54)
     p0 = random_params(rng, "affine", "general")
     kwargs = dict(aligner_mode="local", gap_mode="affine", substitution_mode="general",
                   initial_parameters=p0, max_iter=2, stepfunction=create_constant_step(0.01),
                   backend=backend)
-    auto = discrimalign(A, B, y, num_threads=0, **kwargs)
+    auto = discrimalign(A, B, y, **({"num_threads": 0} if explicit else {}), **kwargs)
+    expected = 3 if backend == "nwgrad" else 1
+    assert seen and set(seen) == {expected}
+    seen.clear()
     one = discrimalign(A, B, y, num_threads=1, **kwargs)
-    if backend == "nwgrad":
-        assert seen == [3, 1]
     for key in _param_keys("affine", "general") | set(TRAJECTORY_KEYS):
         np.testing.assert_array_equal(np.asarray(auto[key]), np.asarray(one[key]), err_msg=key)
