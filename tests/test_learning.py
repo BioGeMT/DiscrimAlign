@@ -16,13 +16,14 @@ from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, align_all, make
 pytestmark = pytest.mark.slow
 
 ALL_MODES = [(m, g, s) for m in MODES for g in GAP_MODES for s in SUBSTITUTION_MODES]
+BACKENDS = ["biopython", "nwgrad"]
 
 
-def _fit(A, B, y, mode, gap_mode, substitution_mode, max_iter=30, scale=1e-3):
+def _fit(A, B, y, mode, gap_mode, substitution_mode, backend, max_iter=30, scale=1e-3):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         return discrimalign(A, B, y, aligner_mode=mode, gap_mode=gap_mode,
-                            substitution_mode=substitution_mode,
+                            substitution_mode=substitution_mode, backend=backend,
                             stepfunction=create_powerstep(scale), max_iter=max_iter)
 
 
@@ -30,11 +31,12 @@ def _auc(aligner, A, B, y):
     return roc_auc_score(y, [a.score for a in align_all(A, B, aligner)])
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_learning_improves_fit_and_generalizes(mode, gap_mode, substitution_mode):
+def test_learning_improves_fit_and_generalizes(mode, gap_mode, substitution_mode, backend):
     rng = np.random.default_rng(0)
     A, B, y = make_pairs(rng, 40, 40, 40, sub_rate=0.3, indel_rate=0.1)
-    res = _fit(A, B, y, mode, gap_mode, substitution_mode)
+    res = _fit(A, B, y, mode, gap_mode, substitution_mode, backend)
 
     traj = res["loglik_trajectory"]
     assert res["final_loglik"] > traj[0]
@@ -70,8 +72,9 @@ def _transitions_only(rng, seq, rate):
     return "".join(_TRANSITION[c] if c in "AG" and rng.random() < rate else c for c in seq)
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("substitution_mode", ["symmetric", "general"])
-def test_planted_substitution_is_recovered(substitution_mode):
+def test_planted_substitution_is_recovered(substitution_mode, backend):
     """Homologs differ only by A<->G transitions, so A-G must outscore every other mismatch."""
     rng = np.random.default_rng(0)
     A, B, y = [], [], []
@@ -83,7 +86,7 @@ def test_planted_substitution_is_recovered(substitution_mode):
         A.append(random_seq(rng, 40))
         B.append(random_seq(rng, 40))
         y.append(0)
-    res = _fit(A, B, np.array(y), "local", "affine", substitution_mode)
+    res = _fit(A, B, np.array(y), "local", "affine", substitution_mode, backend)
 
     M = res["substitution_matrix"]
     others = [M[a, b] for a in "ACGT" for b in "ACGT"
