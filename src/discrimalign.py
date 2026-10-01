@@ -8,6 +8,7 @@ from numpy import random as rd
 from scipy.optimize import minimize
 from copy import deepcopy
 from math import ceil
+import os
 from .optimization import (get_initial_estimate, get_initial_estimate_from_counts,
                            get_first_alignment)
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
@@ -155,6 +156,8 @@ def discrimalign(seqlistA, seqlistB,
     estimate is fitted on nwgrad's alignments of the baseline too, and a
     baseline_aligner must have uniform gap scores and no wildcard. The
     returned aligner and alignments always use Biopython.
+
+    num_threads=0 uses all logical cores.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -172,6 +175,13 @@ def discrimalign(seqlistA, seqlistB,
         if empty:
             raise ValueError(f'{name} contains empty sequences (at indices {empty[:10]}); '
                              'every sequence needs at least one residue')
+    if num_threads == 0:
+        # All logical cores, passed to nwgrad explicitly rather than its own
+        # n_threads=0, which picks physical cores: short pairs such as
+        # miRNA-target sites gain about 25% from SMT on hosts that have it.
+        # TODO: long-pair (e.g. protein) workflows can be faster on physical
+        # cores once their DP tables outgrow the cache; see TODO.md in nwgrad.
+        num_threads = os.cpu_count() or 1
     if alphabet is None:
         alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
     if alphabet is None:

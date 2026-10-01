@@ -372,3 +372,28 @@ def test_out_of_alphabet_letter_raises(backend):
         discrimalign(A, B, y, aligner_mode="local", gap_mode="affine", substitution_mode="general",
                      alphabet="ACGT", max_iter=1, stepfunction=create_constant_step(0.01),
                      backend=backend)
+
+
+@pytest.mark.parametrize("backend", ["biopython", "nwgrad"])
+def test_zero_threads_means_all_logical_cores(backend, monkeypatch):
+    import src.nwgrad_backend as nwgrad_backend
+    seen = []
+    original = nwgrad_backend.NwgradEngine.__init__
+
+    def spy(self, *args):
+        seen.append(args[-1])
+        original(self, *args)
+
+    monkeypatch.setattr(nwgrad_backend.NwgradEngine, "__init__", spy)
+    monkeypatch.setattr(sys.modules["src.discrimalign"].os, "cpu_count", lambda: 3)
+    rng, A, B, y = _data(54)
+    p0 = random_params(rng, "affine", "general")
+    kwargs = dict(aligner_mode="local", gap_mode="affine", substitution_mode="general",
+                  initial_parameters=p0, max_iter=2, stepfunction=create_constant_step(0.01),
+                  backend=backend)
+    auto = discrimalign(A, B, y, num_threads=0, **kwargs)
+    one = discrimalign(A, B, y, num_threads=1, **kwargs)
+    if backend == "nwgrad":
+        assert seen == [3, 1]
+    for key in _param_keys("affine", "general") | set(TRAJECTORY_KEYS):
+        np.testing.assert_array_equal(np.asarray(auto[key]), np.asarray(one[key]), err_msg=key)
