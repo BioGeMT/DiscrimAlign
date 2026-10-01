@@ -167,6 +167,11 @@ def discrimalign(seqlistA, seqlistB,
             'mapping the iteration number to a step size, e.g. '
             'create_powerstep(1e-5) or create_constant_step(1e-5) from '
             'src.optimization')
+    for seqlist, name in ((seqlistA, 'seqlistA'), (seqlistB, 'seqlistB')):
+        empty = [i for i, seq in enumerate(seqlist) if len(seq) == 0]
+        if empty:
+            raise ValueError(f'{name} contains empty sequences (at indices {empty[:10]}); '
+                             'every sequence needs at least one residue')
     if alphabet is None:
         alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
     if alphabet is None:

@@ -107,6 +107,24 @@ def test_missing_stepfunction_raises_before_any_work(max_iter, monkeypatch, back
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("which", ["A", "B"])
+def test_empty_sequences_raise_before_any_work(which, backend, monkeypatch):
+    module = sys.modules["src.discrimalign"]
+
+    def fail(*args, **kwargs):
+        raise AssertionError("aligned before validating the sequences")
+
+    monkeypatch.setattr(module, "_align_pairs", fail)
+    _, A, B, y = _data()
+    if which == "A":
+        A[3] = ""
+    else:
+        B[1] = B[5] = ""
+    with pytest.raises(ValueError, match=f"seqlist{which} contains empty sequences"):
+        _run_on(backend, A, B, y, "local", "affine", "simple", max_iter=0, stepfunction=None)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 def test_missing_stepfunction_is_fine_without_iterations(backend):
     _, A, B, y = _data()
     res = _run_on(backend, A, B, y, "local", "affine", "simple", max_iter=0, stepfunction=None)
