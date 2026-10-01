@@ -13,8 +13,8 @@ from src.logit_link import logit_logL, logit_subgradient
 from src.optimization import (EmptyLocalAlignment, create_constant_step,
                               create_powerstep, get_initial_estimate)
 from tests.helpers import (DNA, GAP_MODES, MODES, SUBSTITUTION_MODES, align_all,
-                           make_aligner, make_pairs, model_gradient, optimal_alpha,
-                           random_params)
+                           default_baseline, make_aligner, make_pairs, model_gradient,
+                           optimal_alpha, random_params)
 
 ALL_MODES = [(m, g, s) for m in MODES for g in GAP_MODES for s in SUBSTITUTION_MODES]
 
@@ -361,31 +361,14 @@ def test_protein_alphabet():
 
 # --- baselines used for the initial estimate --------------------------------
 
-def _default_baseline(mode, gap_mode, substitution_mode, alphabet=DNA):
-    aligner = PairwiseAligner()
-    aligner.mode = mode
-    if gap_mode == "affine":
-        aligner.open_gap_score = -8
-        aligner.extend_gap_score = -0.5
-    else:
-        aligner.gap_score = -6
-    if substitution_mode == "simple":
-        aligner.match_score = 5
-        aligner.mismatch_score = -4
-    else:
-        aligner.substitution_matrix = substitution_matrices.Array(
-            data=9 * np.eye(len(alphabet)) - 4, alphabet=alphabet)
-    return aligner
-
-
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_initial_estimate_uses_default_baseline(mode, gap_mode, substitution_mode):
+def test_initial_estimate_usesdefault_baseline(mode, gap_mode, substitution_mode):
     _, A, B, y = _data(19, n=20)
     res = _run(A, B, y, mode, gap_mode, substitution_mode, max_iter=0, stepfunction=None)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         expected = get_initial_estimate(
-            align_all(A, B, _default_baseline(mode, gap_mode, substitution_mode)), y,
+            align_all(A, B, default_baseline(mode, gap_mode, substitution_mode)), y,
             substitution_mode=substitution_mode, gap_mode=gap_mode, alphabet=DNA)
     _clip_gaps(expected)
     _assert_params_equal(res, expected, _param_keys(gap_mode, substitution_mode), rtol=1e-12)

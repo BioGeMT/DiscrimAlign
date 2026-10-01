@@ -74,13 +74,15 @@ def _count_features(raw_counts_list, substitution_mode, gap_mode, alphabet):
     predictors = []
     for raw in raw_counts_list:
         subs = raw['Substitutions']
+        G = np.asarray(subs)
         opens, extends = raw['Gap opens'], raw['Gap extends']
         gaps = [opens, extends] if gap_mode == 'affine' else [opens + extends]
         if substitution_mode == 'simple':
-            G = np.asarray(subs)
             predictors.append([np.trace(G), G.sum() - np.trace(G)] + gaps)
         else:
-            predictors.append([subs[char1, char2] for char1 in alphabet for char2 in alphabet] + gaps)
+            # Rows and columns in the order of alphabet, whatever the order of subs.
+            order = [subs.alphabet.index(char) for char in alphabet]
+            predictors.append(list(G[np.ix_(order, order)].ravel()) + gaps)
     return predictors
 
 

@@ -197,3 +197,30 @@ def small_fixture(seed, n=6, length=10):
     seqsB += [b for _, b in EDGE_PAIRS]
     labels = np.concatenate([labels, rng.integers(0, 2, size=len(EDGE_PAIRS))])
     return rng, seqsA, seqsB, labels
+
+
+def default_baseline(mode, gap_mode, substitution_mode, alphabet=DNA, perturb=None):
+    """
+    discrimalign()'s default baseline aligner. With perturb=rng, every score
+    is shifted by uniform noise in [-0.05, 0.05]: the integer defaults tie
+    often (two mismatches cost one gap open), and at a tie the backends may
+    pick different, equally optimal alignments with different counts.
+    """
+    noise = (lambda: 0.0) if perturb is None else (lambda: float(perturb.uniform(-0.05, 0.05)))
+    aligner = PairwiseAligner()
+    aligner.mode = mode
+    if gap_mode == "affine":
+        aligner.open_gap_score = -8 + noise()
+        aligner.extend_gap_score = -0.5 + noise()
+    else:
+        aligner.gap_score = -6 + noise()
+    n = len(alphabet)
+    if substitution_mode == "simple":
+        aligner.match_score = 5 + noise()
+        aligner.mismatch_score = -4 + noise()
+    else:
+        data = 9 * np.eye(n) - 4
+        if perturb is not None:
+            data = data + perturb.uniform(-0.05, 0.05, size=(n, n))
+        aligner.substitution_matrix = substitution_matrices.Array(data=data, alphabet=alphabet)
+    return aligner

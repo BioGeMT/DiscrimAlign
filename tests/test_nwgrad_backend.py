@@ -5,15 +5,19 @@ Both backends find optimal paths at the same parameters. Where raw counts can
 differ (ties in simple or linear mode), the gradient in the model's own
 parameters does not, so trajectories agree up to rounding.
 """
+import sys
 import warnings
 
 import numpy as np
 import pytest
+from Bio.Align import PairwiseAligner, substitution_matrices
 
-from src.discrimalign import discrimalign, discrimalign_nwgrad
-from src.optimization import EmptyLocalAlignment, create_constant_step, create_powerstep
-from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, make_aligner,
-                           make_pairs, random_params)
+from src.discrimalign import _MAX_GAP_SCORE, discrimalign, discrimalign_nwgrad
+from src.nwgrad_backend import baseline_parameters
+from src.optimization import (EmptyLocalAlignment, create_constant_step, create_powerstep,
+                              get_initial_estimate_from_counts)
+from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, default_baseline,
+                           make_aligner, make_pairs, random_params)
 
 ALL_MODES = [(m, g, s) for m in MODES for g in GAP_MODES for s in SUBSTITUTION_MODES]
 
@@ -65,10 +69,65 @@ def test_trajectory_matches_biopython_from_given_parameters(mode, gap_mode, subs
 
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_trajectory_matches_biopython_from_initial_estimate(mode, gap_mode, substitution_mode):
-    _, A, B, y = _data(2, n=20)
+    """From a tie-free baseline, both backends fit the same initial estimate."""
+    rng, A, B, y = _data(2, n=20)
+    baseline = default_baseline(mode, gap_mode, substitution_mode, perturb=rng)
     bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, max_iter=3,
-                    stepfunction=create_powerstep(1e-3))
+                    stepfunction=create_powerstep(1e-3), baseline_aligner=baseline)
     _assert_same_fit(bio, nw, gap_mode, substitution_mode)
+
+
+@pytest.mark.parametrize("seed", [0, 1])
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_initial_estimate_matches_biopython_from_tie_free_baseline(mode, gap_mode,
+                                                                   substitution_mode, seed):
+    rng, A, B, y = _data(20 + seed, n=20)
+    baseline = default_baseline(mode, gap_mode, substitution_mode, perturb=rng)
+    bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, max_iter=0,
+                    stepfunction=None, baseline_aligner=baseline)
+    _assert_same_fit(bio, nw, gap_mode, substitution_mode, rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_nwgrad_initial_estimate_is_fitted_on_nwgrad_counts(mode, gap_mode, substitution_mode):
+    """With the default (tie-prone) baseline: self-consistent, whatever ties nwgrad broke."""
+    from src.nwgrad_backend import NwgradEngine, baseline_parameters
+    _, A, B, y = _data(3, n=20)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res = discrimalign(A, B, y, aligner_mode=mode, gap_mode=gap_mode,
+                           substitution_mode=substitution_mode, max_iter=0, backend="nwgrad")
+        engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 1)
+        engine.set_params(baseline_parameters(default_baseline(mode, gap_mode, substitution_mode),
+                                              gap_mode, "ACGT"), substitution_mode="general")
+        engine.scores()
+        expected = get_initial_estimate_from_counts(engine.raw_counts(), y, substitution_mode,
+                                                    gap_mode, "ACGT")
+    for key in _param_keys(gap_mode, substitution_mode) - {"alpha", "final_loglik"}:
+        value = np.asarray(expected[key], dtype=float)
+        if key in ("open_gap_score", "extend_gap_score", "gap_score"):
+            value = np.minimum(value, _MAX_GAP_SCORE)
+        np.testing.assert_allclose(np.asarray(res[key], dtype=float), value, rtol=1e-12, err_msg=key)
+    assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
+
+
+@pytest.mark.parametrize("initial", [True, False])
+def test_nwgrad_backend_needs_no_biopython_alignment(initial, monkeypatch):
+    """Without returned alignments, the nwgrad path never aligns with Biopython."""
+    module = sys.modules["src.discrimalign"]
+
+    def fail(*args, **kwargs):
+        raise AssertionError("Biopython alignment on the nwgrad path")
+
+    monkeypatch.setattr(module, "_align_pairs", fail)
+    rng, A, B, y = _data(4, n=20)
+    kwargs = {"initial_parameters": random_params(rng, "affine", "general")} if initial else {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        res = discrimalign(A, B, y, aligner_mode="local", gap_mode="affine",
+                           substitution_mode="general", max_iter=2, return_alignments=False,
+                           stepfunction=create_constant_step(0.01), backend="nwgrad", **kwargs)
+    assert "alignments" not in res
 
 
 @pytest.mark.parametrize("substitution_mode", SUBSTITUTION_MODES)
@@ -197,3 +256,71 @@ def test_long_trajectory_matches_biopython(mode, gap_mode, substitution_mode):
     bio, nw = _both(A, B, y, mode, gap_mode, substitution_mode, max_iter=30,
                     stepfunction=create_powerstep(1e-3))
     _assert_same_fit(bio, nw, gap_mode, substitution_mode, rtol=1e-7, atol=1e-7)
+
+
+# --- baseline_parameters: strict conversion of a Biopython aligner ----------
+
+@pytest.mark.parametrize("gap_mode", GAP_MODES)
+@pytest.mark.parametrize("substitution_mode", SUBSTITUTION_MODES)
+def test_baseline_parameters_of_default_aligner(gap_mode, substitution_mode):
+    p = baseline_parameters(default_baseline("local", gap_mode, substitution_mode), gap_mode, "ACGT")
+    if gap_mode == "affine":
+        assert (p["open_gap_score"], p["extend_gap_score"]) == (-8.0, -0.5)
+    else:
+        assert p["gap_score"] == -6.0
+    assert "".join(p["substitution_matrix"].alphabet) == "ACGT"
+    np.testing.assert_array_equal(np.asarray(p["substitution_matrix"]), 9 * np.eye(4) - 4)
+
+
+def test_baseline_parameters_reorders_matrix_to_alphabet():
+    aligner = PairwiseAligner()
+    aligner.substitution_matrix = substitution_matrices.Array(
+        alphabet="TGCAN", data=np.arange(25.0).reshape(5, 5))
+    M = baseline_parameters(aligner, "affine", "ACGT")["substitution_matrix"]
+    assert "".join(M.alphabet) == "ACGT"
+    src = aligner.substitution_matrix
+    for a in "ACGT":
+        for b in "ACGT":
+            assert M[a, b] == src[a, b]
+
+
+def test_baseline_parameters_affine_aligner_in_affine_mode_of_linear_scores():
+    aligner = PairwiseAligner()
+    aligner.gap_score = -3
+    p = baseline_parameters(aligner, "affine", "ACGT")
+    assert (p["open_gap_score"], p["extend_gap_score"]) == (-3.0, -3.0)
+
+
+def _aligner(**scores):
+    aligner = PairwiseAligner()
+    aligner.match_score, aligner.mismatch_score = 2, -1
+    aligner.open_gap_score, aligner.extend_gap_score = -5, -1
+    for name, value in scores.items():
+        setattr(aligner, name, value)
+    return aligner
+
+
+@pytest.mark.parametrize("gap_mode, scores, message", [
+    ("affine", {"end_gap_score": 0}, "internal and end gaps"),
+    ("affine", {"open_insertion_score": -2}, "same for both sequences"),
+    ("linear", {}, "open must equal extend"),
+    ("affine", {"wildcard": "N"}, "wildcard"),
+    ("affine", {"mode": "fogsaa"}, "not supported"),
+])
+def test_baseline_parameters_rejects_what_the_model_cannot_express(gap_mode, scores, message):
+    with pytest.raises(ValueError, match=message):
+        baseline_parameters(_aligner(**scores), gap_mode, "ACGT")
+
+
+def test_baseline_parameters_rejects_matrix_missing_letters():
+    aligner = PairwiseAligner()
+    aligner.substitution_matrix = substitution_matrices.Array(alphabet="ACG", data=np.eye(3))
+    with pytest.raises(ValueError, match="lacks letters 'T'"):
+        baseline_parameters(aligner, "affine", "ACGT")
+
+
+def test_nwgrad_backend_rejects_nonuniform_baseline_aligner():
+    _, A, B, y = _data(5)
+    with pytest.raises(ValueError, match="internal and end gaps"):
+        discrimalign(A, B, y, aligner_mode="global", gap_mode="affine", substitution_mode="simple",
+                     baseline_aligner=_aligner(end_gap_score=0), max_iter=0, backend="nwgrad")

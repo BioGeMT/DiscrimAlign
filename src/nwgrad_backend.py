@@ -5,8 +5,49 @@ iterations.
 """
 import numpy as np
 import nwgrad
+from Bio.Align import substitution_matrices
 
 from .nwgrad_params import grad_to_raw, to_nwgrad
+
+
+def baseline_parameters(aligner, gap_mode, alphabet):
+    """
+    The scores of a Biopython PairwiseAligner as a DiscrimAlign parameter
+    dict, with the substitutions always as a matrix over alphabet. Raises
+    ValueError for anything the model cannot express: an unsupported mode, a
+    wildcard, gap scores that differ between the two sequences or between
+    internal and end gaps, affine gaps when gap_mode is 'linear', or a
+    matrix missing letters of alphabet.
+    """
+    if aligner.mode not in ('local', 'global'):
+        raise ValueError(f"nwgrad backend: baseline_aligner mode {aligner.mode!r} "
+                         "is not supported (expected 'local' or 'global')")
+    if aligner.wildcard is not None:
+        raise ValueError("nwgrad backend: baseline_aligner wildcard is not supported")
+    try:
+        if gap_mode == 'affine':
+            params = {'open_gap_score': aligner.open_gap_score,
+                      'extend_gap_score': aligner.extend_gap_score}
+        else:
+            params = {'gap_score': aligner.gap_score}
+    except ValueError as error:
+        raise ValueError(
+            "nwgrad backend: baseline_aligner gap scores must be the same for both "
+            "sequences and for internal and end gaps"
+            + (", and open must equal extend for gap_mode='linear'"
+               if gap_mode == 'linear' else "")) from error
+    matrix = aligner.substitution_matrix
+    if matrix is None:
+        data = np.full((len(alphabet), len(alphabet)), float(aligner.mismatch_score))
+        data[np.diag_indices(len(alphabet))] = aligner.match_score
+    else:
+        missing = sorted(set(alphabet) - set(matrix.alphabet))
+        if missing:
+            raise ValueError("nwgrad backend: baseline_aligner substitution matrix "
+                             f"lacks letters {''.join(missing)!r}")
+        data = np.array([[matrix[a, b] for b in alphabet] for a in alphabet], dtype=float)
+    params['substitution_matrix'] = substitution_matrices.Array(alphabet=alphabet, data=data)
+    return params
 
 
 class NwgradEngine:
@@ -30,8 +71,13 @@ class NwgradEngine:
                                                traceback='pointers')
         self._built = False
 
-    def set_params(self, params):
-        nw_params = to_nwgrad(params, self.gap_mode, self.substitution_mode, self.alphabet)
+    def set_params(self, params, substitution_mode=None):
+        """
+        substitution_mode overrides the engine's own for this call, e.g. to
+        align a baseline given as a full matrix in a simple-mode fit.
+        """
+        nw_params = to_nwgrad(params, self.gap_mode,
+                              substitution_mode or self.substitution_mode, self.alphabet)
         if self._built:
             self.batch.set_params(nw_params)
         else:
@@ -43,6 +89,10 @@ class NwgradEngine:
     def scores(self):
         self.batch.score_and_grad()
         return self.batch.scores()
+
+    def raw_counts(self):
+        """Per-pair counts in logit_subgradient's format, for the scores just computed."""
+        return [grad_to_raw(self.batch[i].grad) for i in range(len(self.batch))]
 
     def raw_subgradient(self, logit_scores, labels, alpha):
         """

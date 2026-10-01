@@ -8,7 +8,8 @@ from numpy import random as rd
 from scipy.optimize import minimize
 from copy import deepcopy
 from math import ceil
-from .optimization import get_initial_estimate, get_first_alignment
+from .optimization import (get_initial_estimate, get_initial_estimate_from_counts,
+                           get_first_alignment)
 from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
 
 
@@ -149,10 +150,11 @@ def discrimalign(seqlistA, seqlistB,
                  verbose=False,
                  backend='biopython'):
     """
-    backend selects where alignment scores and subgradients come from in
-    the iterations: 'biopython' (PairwiseAligner) or 'nwgrad'. The initial
-    estimate, the returned aligner and the returned alignments always use
-    Biopython.
+    backend selects where alignment scores and subgradients come from:
+    'biopython' (PairwiseAligner) or 'nwgrad'. With 'nwgrad', the initial
+    estimate is fitted on nwgrad's alignments of the baseline too, and a
+    baseline_aligner must have uniform gap scores and no wildcard. The
+    returned aligner and alignments always use Biopython.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -212,13 +214,29 @@ def discrimalign(seqlistA, seqlistB,
             aligner.substitution_matrix = substitution_matrices.Array(data=9*np.eye(len(alphabet))-4,
                                                                       alphabet=alphabet)
 
-    alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
-    alignment_scores = [aln.score for aln in alnlist]
+    # The baseline aligner's mode, when given, takes precedence over aligner_mode.
+    if backend == 'nwgrad':
+        from .nwgrad_backend import NwgradEngine, baseline_parameters
+        engine = NwgradEngine(seqlistA, seqlistB, aligner.mode, gap_mode,
+                              substitution_mode, alphabet, num_threads)
+    else:
+        engine = _BiopythonEngine(seqlistA, seqlistB, aligner, gap_mode,
+                                  substitution_mode, alphabet, num_threads)
 
-    # Initial logistic estimation, unless caller provides fitted parameters for a warm start.
+    # Initial logistic estimation from the baseline alignments, unless the
+    # caller provides fitted parameters for a warm start.
     if initial_parameters is not None:
         updated_parameters = deepcopy(initial_parameters)
+    elif backend == 'nwgrad':
+        engine.set_params(baseline_parameters(aligner, gap_mode, alphabet),
+                          substitution_mode='general')
+        engine.scores()
+        updated_parameters = get_initial_estimate_from_counts(engine.raw_counts(), labels,
+                                                              substitution_mode=substitution_mode,
+                                                              gap_mode=gap_mode,
+                                                              alphabet=alphabet)
     else:
+        alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
         updated_parameters = get_initial_estimate(alnlist, labels,
                                                   substitution_mode=substitution_mode,
                                                   gap_mode=gap_mode,
@@ -228,15 +246,6 @@ def discrimalign(seqlistA, seqlistB,
         print(updated_parameters)
     _clip_gap_scores(updated_parameters, gap_mode)
     _configure_aligner(aligner, updated_parameters, gap_mode, substitution_mode)
-
-    # The baseline aligner's mode, when given, takes precedence over aligner_mode.
-    if backend == 'nwgrad':
-        from .nwgrad_backend import NwgradEngine
-        engine = NwgradEngine(seqlistA, seqlistB, aligner.mode, gap_mode,
-                              substitution_mode, alphabet, num_threads)
-    else:
-        engine = _BiopythonEngine(seqlistA, seqlistB, aligner, gap_mode,
-                                  substitution_mode, alphabet, num_threads)
 
     # Subgradient refinement
     loglik_trajectory = []
