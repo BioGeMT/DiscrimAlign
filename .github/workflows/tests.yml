@@ -13,5 +13,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync
+      # This branch tests nwgrad_fill='rowwise', which needs nwgrad's unreleased
+      # SeqPairBatch.fill: build nwgrad from its perf-dp branch over the locked wheel.
+      - run: uv pip install "nwgrad @ git+https://github.com/michalsta/nwgrad@perf-dp"
       - run: uv pip show nwgrad
-      - run: uv run pytest
+      - run: uv run --no-sync pytest

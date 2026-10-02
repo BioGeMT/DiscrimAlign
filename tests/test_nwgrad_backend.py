@@ -407,9 +407,9 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
     engine_init = nwgrad_backend.NwgradEngine.__init__
     align_pairs = module._align_pairs
 
-    def spy_engine(self, *args):
+    def spy_engine(self, *args, **kwargs):
         seen.append(args[-1])
-        engine_init(self, *args)
+        engine_init(self, *args, **kwargs)
 
     def spy_align(seqsA, seqsB, aligner, num_threads):
         seen.append(num_threads)

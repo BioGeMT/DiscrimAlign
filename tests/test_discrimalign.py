@@ -646,3 +646,32 @@ def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substituti
     np.testing.assert_allclose(native["loglik_trajectory"], python["loglik_trajectory"], rtol=1e-12)
     _assert_params_equal(native, python, _param_keys(gap_mode, substitution_mode),
                          rtol=1e-12, atol=1e-12)
+
+
+def _has_fill():
+    import nwgrad
+    return hasattr(nwgrad.SeqPairBatchDouble(n_threads=1), "fill")
+
+
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_rowwise_fill_gives_the_same_fit(mode, gap_mode, substitution_mode):
+    """nwgrad_fill='rowwise' changes only the speed: the fit is bit-identical."""
+    if not _has_fill():
+        pytest.skip("nwgrad without SeqPairBatch.fill")
+    _, A, B, y = _data(25)
+    kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
+    striped = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
+    rowwise = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode,
+                      nwgrad_fill="rowwise", **kwargs)
+    assert rowwise["alpha"] == striped["alpha"]
+    assert rowwise["loglik_trajectory"] == striped["loglik_trajectory"]
+    _assert_params_equal(rowwise, striped, _param_keys(gap_mode, substitution_mode),
+                         rtol=0, atol=0)
+
+
+def test_nwgrad_fill_is_validated():
+    _, A, B, y = _data(26)
+    with pytest.raises(ValueError, match="nwgrad_fill must be"):
+        discrimalign(A, B, y, max_iter=0, backend="nwgrad", nwgrad_fill="diagonal")
+    with pytest.raises(ValueError, match="nwgrad backend only"):
+        discrimalign(A, B, y, max_iter=0, backend="biopython", nwgrad_fill="rowwise")

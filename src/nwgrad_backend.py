@@ -66,7 +66,7 @@ class NwgradEngine:
     """
 
     def __init__(self, seqlistA, seqlistB, mode, gap_mode, substitution_mode,
-                 alphabet, num_threads):
+                 alphabet, num_threads, fill='striped'):
         self.seqlistA = list(seqlistA)
         self.seqlistB = list(seqlistB)
         self.mode = mode
@@ -75,6 +75,11 @@ class NwgradEngine:
         self.alphabet = alphabet
         self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
                                                traceback='pointers')
+        if fill != 'striped':
+            if not hasattr(self.batch, 'fill'):
+                raise ValueError(f"nwgrad_fill={fill!r} needs an nwgrad with "
+                                 "SeqPairBatch.fill (row-wise fill); this one has none")
+            self.batch.fill = fill
         self._built = False
 
     def set_params(self, params, substitution_mode=None):
