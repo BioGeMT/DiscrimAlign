@@ -555,8 +555,8 @@ def _record_alpha_fits(monkeypatch):
     calls = []
     original = module.fit_alpha
 
-    def recording(scores, labels, alpha0):
-        alpha = original(scores, labels, alpha0)
+    def recording(scores, labels, alpha0, **kwargs):
+        alpha = original(scores, labels, alpha0, **kwargs)
         calls.append((np.array(scores, dtype=float), np.array(labels, dtype=float), alpha))
         return alpha
 

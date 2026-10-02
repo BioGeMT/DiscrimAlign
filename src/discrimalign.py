@@ -11,7 +11,8 @@ from math import ceil
 import os
 from .optimization import (create_powerstep, get_initial_estimate,
                            get_initial_estimate_from_counts, get_first_alignment)
-from .logit_link import fit_alpha, logit_partial_scores, logit_logL, logit_subgradient
+from .logit_link import (_logit_logL_unchecked, fit_alpha, logit_partial_scores, logit_logL,
+                         logit_subgradient)
 
 
 def _align_pair_chunk(pair_chunk, aligner):
@@ -270,6 +271,12 @@ def discrimalign(seqlistA, seqlistB,
     _clip_gap_scores(updated_parameters, gap_mode)
     _configure_aligner(aligner, updated_parameters, gap_mode, substitution_mode)
 
+    # The loop uses the labels as floats, checked once.
+    labels_float = np.asarray(labels, dtype=float)
+    if not np.isin(labels_float, [0, 1]).all():
+        raise ValueError('Labels can only be 0 or 1')
+    one_minus_labels = 1 - labels_float
+
     # Subgradient refinement
     loglik_trajectory = []
     subgradient_l2_trajectory = []
@@ -280,10 +287,10 @@ def discrimalign(seqlistA, seqlistB,
             print('Start of iteration', iternb)
         # Realign with the new parameters
         engine.set_params(updated_parameters)
-        alignment_scores = engine.scores()
+        alignment_scores = np.asarray(engine.scores(), dtype=float)
         logit_scores = logit_partial_scores(alignment_scores,
                                             updated_parameters['alpha'])
-        new_logL = logit_logL(logit_scores, labels)
+        new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
         loglik_trajectory.append(new_logL)
         if verbose:
             print("Current alpha:", updated_parameters['alpha'])
@@ -300,7 +307,8 @@ def discrimalign(seqlistA, seqlistB,
 
         # Optimize the logistic intercept (alpha)
         if alpha_solver == 'safeguarded_newton':
-            new_alpha = fit_alpha(alignment_scores, labels, updated_parameters['alpha'])
+            new_alpha = fit_alpha(alignment_scores, labels_float, updated_parameters['alpha'],
+                                  logit_scores0=logit_scores)
         else:
             def alpha_target(alpha):
                 logit_scores = logit_partial_scores(alignment_scores, alpha)
@@ -316,14 +324,14 @@ def discrimalign(seqlistA, seqlistB,
 
         logit_scores = logit_partial_scores(alignment_scores, new_alpha)
         if verbose:
-            new_logL = logit_logL(logit_scores, labels)
+            new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
             print("Updated alpha:", new_alpha)
             print('Updated logL:', new_logL)
 
         updated_parameters['alpha'] = new_alpha
 
         # Make a subgradient step
-        subgradient = engine.raw_subgradient(logit_scores, labels, new_alpha)
+        subgradient = engine.raw_subgradient(logit_scores, labels_float, new_alpha)
         if subgradient_scale != 1.0:
             subgradient['Gap opens'] *= subgradient_scale
             subgradient['Gap extends'] *= subgradient_scale

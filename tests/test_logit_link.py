@@ -181,6 +181,28 @@ def test_fit_alpha_returns_python_float_and_accepts_lists():
     assert isinstance(alpha, float)
 
 
+@pytest.mark.parametrize("start", [0.0, 0.3, -40.0])
+def test_fit_alpha_given_starting_probabilities_is_bit_identical(start):
+    scores, labels = _alpha_data(3)
+    expected = fit_alpha(scores, labels, start)
+    given = fit_alpha(scores, labels, start, logit_scores0=logit_partial_scores(scores, start))
+    assert given == expected
+
+
+def test_logL_shared_arithmetic_is_bit_identical_to_the_formula():
+    from src.logit_link import _logit_logL_unchecked
+    rng = np.random.default_rng(4)
+    p = rng.random(1000)
+    p[:5] = [0.0, 1.0, 1e-300, 1 - 1e-17, 0.5]
+    labels = rng.integers(0, 2, 1000)
+    eps = np.finfo(float).eps
+    clipped = np.clip(p, eps, 1.0 - eps)
+    formula = float(np.sum(labels * np.log(clipped) + (1 - labels) * np.log1p(-clipped)))
+    as_float = labels.astype(float)
+    assert logit_logL(p, labels) == formula
+    assert _logit_logL_unchecked(p, as_float, 1 - as_float) == formula
+
+
 @pytest.mark.parametrize("labels", [[1, 1, 1], [0, 0, 0]])
 def test_fit_alpha_needs_both_classes(labels):
     with pytest.raises(ValueError, match="both classes"):

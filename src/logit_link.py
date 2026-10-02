@@ -26,11 +26,26 @@ def logit_logL(logit_scores, labels):
     """
     logit_scores = np.asarray(logit_scores, dtype=float)
     labels = np.asarray(labels)
-    eps = np.finfo(float).eps
-    logit_scores = np.clip(logit_scores, eps, 1.0 - eps)
     if not np.isin(labels, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
-    return float(np.sum(labels * np.log(logit_scores) + (1 - labels) * np.log1p(-logit_scores)))
+    return _logit_logL_unchecked(logit_scores, labels, 1 - labels)
+
+
+def _logit_logL_unchecked(logit_scores, labels, one_minus_labels):
+    """
+    logit_logL() for a float array of logit scores and labels already known to
+    be 0 or 1, given 1 - labels too: the same arithmetic in the same order,
+    with fewer temporary arrays. For loops that evaluate it on the same labels
+    many times.
+    """
+    eps = np.finfo(float).eps
+    clipped = np.clip(logit_scores, eps, 1.0 - eps)
+    terms = np.log(clipped)
+    terms *= labels
+    other = np.log1p(np.negative(clipped, out=clipped))
+    other *= one_minus_labels
+    terms += other
+    return float(np.sum(terms))
 
 
 def dlda(logit_scores, labels):
@@ -50,7 +65,8 @@ def d2lda2(logit_scores, labels):
     return -np.sum(logit_scores*(1-logit_scores))
 
 
-def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter=200):
+def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter=200,
+              logit_scores0=None):
     """
     The intercept alpha that maximises the likelihood for fixed alignment
     scores, starting from alpha0.
@@ -63,6 +79,9 @@ def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter
     Newton step would leave it or converge too slowly (Numerical Recipes'
     rtsafe). The log-likelihood itself is never evaluated: logit_logL clips
     probabilities, which makes line searches on it unreliable.
+
+    logit_scores0, if given, must be logit_partial_scores(alignment_scores,
+    alpha0); a caller that already has them saves one pass over the data.
     """
     alignment_scores = np.asarray(alignment_scores, dtype=float)
     labels = np.asarray(labels, dtype=float)
@@ -71,13 +90,14 @@ def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter
         raise ValueError('Fitting alpha needs labels of both classes: with one class '
                          'the likelihood has no finite maximum')
 
-    def derivatives(alpha):
-        logit_scores = logit_partial_scores(alignment_scores, alpha)
+    def derivatives(alpha, logit_scores=None):
+        if logit_scores is None:
+            logit_scores = logit_partial_scores(alignment_scores, alpha)
         return float(dlda(logit_scores, labels)), float(-d2lda2(logit_scores, labels))
 
     alpha = float(alpha0)
-    for _ in range(max_newton):
-        g, h = derivatives(alpha)
+    for k in range(max_newton):
+        g, h = derivatives(alpha, logit_scores0 if k == 0 else None)
         step = g / h if h > 0 else np.inf
         if not np.isfinite(step) or abs(step) > 1.0:
             break
