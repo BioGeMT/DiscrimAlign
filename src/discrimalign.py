@@ -223,10 +223,11 @@ def discrimalign(seqlistA, seqlistB,
     which can stop far from the optimum when alpha moves a long way between
     iterations, e.g. with subgradient_scale=1 on large data.
 
-    nwgrad_fill selects nwgrad's vectorized DP fill: 'striped' (the default) or
-    'rowwise', which gives the same scores and gradients and is 1.5-1.8x faster
-    on short pairs such as miRNA-target sites. 'rowwise' needs an nwgrad with
-    SeqPairBatch.fill.
+    nwgrad_fill selects nwgrad's vectorized DP fill: 'striped' (the default),
+    'rowwise' or 'interpair'. All three give the same scores, gradients and fit,
+    bit for bit. On short pairs such as miRNA-target sites, 'rowwise' is about 2x
+    faster than 'striped', and 'interpair' (several pairs per vector) faster
+    still. The latter two need an nwgrad with SeqPairBatch.fill.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -234,8 +235,9 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
-    if nwgrad_fill not in {'striped', 'rowwise'}:
-        raise ValueError(f"nwgrad_fill must be 'striped' or 'rowwise', got {nwgrad_fill!r}")
+    if nwgrad_fill not in {'striped', 'rowwise', 'interpair'}:
+        raise ValueError("nwgrad_fill must be 'striped', 'rowwise' or 'interpair', "
+                         f"got {nwgrad_fill!r}")
     if nwgrad_fill != 'striped' and backend != 'nwgrad':
         raise ValueError("nwgrad_fill applies to the nwgrad backend only")
     if stepfunction is None:

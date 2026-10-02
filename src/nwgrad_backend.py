@@ -76,10 +76,11 @@ class NwgradEngine:
         self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
                                                traceback='pointers')
         if fill != 'striped':
-            if not hasattr(self.batch, 'fill'):
-                raise ValueError(f"nwgrad_fill={fill!r} needs an nwgrad with "
-                                 "SeqPairBatch.fill (row-wise fill); this one has none")
-            self.batch.fill = fill
+            try:
+                self.batch.fill = fill
+            except (AttributeError, ValueError) as error:
+                raise ValueError(f"nwgrad_fill={fill!r} is not supported by this nwgrad "
+                                 "(it needs SeqPairBatch.fill with that option)") from error
         self._built = False
 
     def set_params(self, params, substitution_mode=None):
