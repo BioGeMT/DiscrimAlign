@@ -23,11 +23,6 @@ they become relevant.
   `log1p(-p)` from `p = expit(z)`, which loses precision on confident
   predictions, and clips each pair's loss at about 36. A stable form computes
   `sum(y*z - logaddexp(0, z))` from the logits.
-- **The intercept fit** (`scipy.optimize.minimize`, default BFGS tolerance)
-  leaves α about 1e-4 from the optimum where the likelihood is flat. It is
-  also the largest per-iteration cost at high thread counts: the alignment
-  itself drops to under half of an iteration. A one-dimensional Newton or
-  bracketing solve on dL/dα would be exact and cheaper.
 - **`src.discrimalign` is shadowed:** `src/__init__.py` imports the function
   under the module's name, so `import src.discrimalign` binds the function.
   Use `sys.modules["src.discrimalign"]` to reach the module.

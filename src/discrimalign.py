@@ -11,7 +11,7 @@ from math import ceil
 import os
 from .optimization import (create_powerstep, get_initial_estimate,
                            get_initial_estimate_from_counts, get_first_alignment)
-from .logit_link import logit_partial_scores, logit_logL, logit_subgradient
+from .logit_link import fit_alpha, logit_partial_scores, logit_logL, logit_subgradient
 
 
 def _align_pair_chunk(pair_chunk, aligner):
@@ -149,7 +149,8 @@ def discrimalign(seqlistA, seqlistB,
                  initial_parameters=None,
                  return_alignments=True,
                  verbose=False,
-                 backend='nwgrad'):
+                 backend='nwgrad',
+                 alpha_solver='safeguarded_newton'):
     """
     backend selects where alignment scores and subgradients come from:
     'nwgrad' (the default) or 'biopython' (PairwiseAligner). With 'nwgrad', the initial
@@ -160,9 +161,16 @@ def discrimalign(seqlistA, seqlistB,
     num_threads=0 (the default) picks the thread count automatically: all
     logical cores with 'nwgrad', 1 with 'biopython', whose threads contend
     for the GIL and only slow it down.
+
+    alpha_solver selects how the intercept alpha is fitted at each iteration:
+    'safeguarded_newton' (the default) finds the exact optimum with fit_alpha()
+    in logit_link; 'bfgs' is the previous scipy.optimize.minimize (BFGS) fit,
+    which can stop far from the optimum when alpha moves a long way between
+    iterations, e.g. with subgradient_scale=1 on large data.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
+    assert alpha_solver in {'safeguarded_newton', 'bfgs'}
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
@@ -291,24 +299,20 @@ def discrimalign(seqlistA, seqlistB,
 ##        loglik_sd.append(SDL)
 
         # Optimize the logistic intercept (alpha)
-        def alpha_target(alpha):
-            logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return -logit_logL(logit_scores, labels)
+        if alpha_solver == 'safeguarded_newton':
+            new_alpha = fit_alpha(alignment_scores, labels, updated_parameters['alpha'])
+        else:
+            def alpha_target(alpha):
+                logit_scores = logit_partial_scores(alignment_scores, alpha)
+                return -logit_logL(logit_scores, labels)
 
-        def alpha_fprime(alpha):
-            logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return -np.sum(labels - logit_scores)
+            def alpha_fprime(alpha):
+                logit_scores = logit_partial_scores(alignment_scores, alpha)
+                return -np.sum(labels - logit_scores)
 
-        def alpha_fsec(alpha):
-            logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return np.sum(logit_scores*(1 - logit_scores))
-
-        new_alpha = minimize(alpha_target,
-                             updated_parameters['alpha'],
-                             jac=alpha_fprime,
-                             # hess=alpha_fsec,
-                             # method='Newton-CG'
-                             )['x'][0]
+            new_alpha = minimize(alpha_target,
+                                 updated_parameters['alpha'],
+                                 jac=alpha_fprime)['x'][0]
 
         logit_scores = logit_partial_scores(alignment_scores, new_alpha)
         if verbose:

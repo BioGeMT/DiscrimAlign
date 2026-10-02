@@ -50,6 +50,81 @@ def d2lda2(logit_scores, labels):
     return -np.sum(logit_scores*(1-logit_scores))
 
 
+def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter=200):
+    """
+    The intercept alpha that maximises the likelihood for fixed alignment
+    scores, starting from alpha0.
+
+    This is the root of dlda, which is strictly decreasing in alpha, so it is
+    unique whenever both classes are present. Plain Newton steps are taken from
+    alpha0 while they stay small (|step| <= 1), which is the usual case when
+    alpha0 is the previous iteration's alpha. Otherwise the root is bracketed
+    and found by Newton steps inside the bracket, with bisection whenever a
+    Newton step would leave it or converge too slowly (Numerical Recipes'
+    rtsafe). The log-likelihood itself is never evaluated: logit_logL clips
+    probabilities, which makes line searches on it unreliable.
+    """
+    alignment_scores = np.asarray(alignment_scores, dtype=float)
+    labels = np.asarray(labels, dtype=float)
+    positives = np.sum(labels)
+    if positives == 0 or positives == len(labels):
+        raise ValueError('Fitting alpha needs labels of both classes: with one class '
+                         'the likelihood has no finite maximum')
+
+    def derivatives(alpha):
+        logit_scores = logit_partial_scores(alignment_scores, alpha)
+        return float(dlda(logit_scores, labels)), float(-d2lda2(logit_scores, labels))
+
+    alpha = float(alpha0)
+    for _ in range(max_newton):
+        g, h = derivatives(alpha)
+        step = g / h if h > 0 else np.inf
+        if not np.isfinite(step) or abs(step) > 1.0:
+            break
+        alpha += step
+        if abs(step) <= tol * max(1.0, abs(alpha)):
+            return alpha
+
+    # Bracket the root: dlda(lo) >= 0 >= dlda(hi).
+    lo, hi, width = alpha - 1.0, alpha + 1.0, 1.0
+    for _ in range(maxiter):
+        if derivatives(lo)[0] >= 0:
+            break
+        lo -= width
+        width *= 2
+    else:
+        raise RuntimeError('fit_alpha: could not bracket the root')
+    width = 1.0
+    for _ in range(maxiter):
+        if derivatives(hi)[0] <= 0:
+            break
+        hi += width
+        width *= 2
+    else:
+        raise RuntimeError('fit_alpha: could not bracket the root')
+
+    alpha = min(max(alpha, lo), hi)
+    dx_old = dx = hi - lo
+    g, h = derivatives(alpha)
+    for _ in range(maxiter):
+        if g == 0.0:
+            return alpha
+        if h > 0 and lo <= alpha + g / h <= hi and abs(2 * g) <= abs(dx_old * h):
+            dx_old, dx = dx, g / h
+            alpha += dx
+        else:
+            dx_old, dx = dx, 0.5 * (hi - lo)
+            alpha = lo + dx
+        if abs(dx) <= tol * max(1.0, abs(alpha)):
+            return alpha
+        g, h = derivatives(alpha)
+        if g > 0:
+            lo = alpha
+        else:
+            hi = alpha
+    raise RuntimeError('fit_alpha: did not converge')
+
+
 def logit_subgradient(alignment_list, logit_scores,
                       labels, alpha,
                       alphabet):

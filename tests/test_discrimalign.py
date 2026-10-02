@@ -55,13 +55,9 @@ def _clip_gaps(params):
 
 
 def _assert_alpha_stationary(alpha, scores, labels):
-    """
-    dlogL/dalpha vanishes at alpha, to scipy.minimize's default gtol (1e-5).
-    Where the likelihood is flat in alpha this is looser than it looks in
-    alpha itself, so alpha is also compared loosely with the exact root.
-    """
-    assert abs(np.sum(labels - expit(alpha + scores))) < 1e-4
-    assert alpha == pytest.approx(optimal_alpha(scores, labels), abs=1e-2)
+    """dlogL/dalpha vanishes at alpha: the default alpha solver finds the exact root."""
+    assert abs(np.sum(labels - expit(alpha + scores))) < 1e-9
+    assert alpha == pytest.approx(optimal_alpha(scores, labels), abs=1e-9)
 
 
 BACKENDS = ["biopython", "nwgrad"]
@@ -549,3 +545,70 @@ def test_discrimalign_uses_default_stepfunction():
 
     assert "final_loglik" in result
     assert "alpha" in result
+
+
+# --- alpha_solver -------------------------------------------------------------
+
+def _record_alpha_fits(monkeypatch):
+    """Wrap discrimalign's fit_alpha, recording (scores, labels, result) per call."""
+    module = sys.modules["src.discrimalign"]
+    calls = []
+    original = module.fit_alpha
+
+    def recording(scores, labels, alpha0):
+        alpha = original(scores, labels, alpha0)
+        calls.append((np.array(scores, dtype=float), np.array(labels, dtype=float), alpha))
+        return alpha
+
+    monkeypatch.setattr(module, "fit_alpha", recording)
+    return calls
+
+
+def test_default_alpha_solver_is_safeguarded_newton():
+    import inspect
+    default = inspect.signature(discrimalign).parameters["alpha_solver"].default
+    assert default == "safeguarded_newton"
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode",
+                         [("local", "affine", "general"), ("global", "linear", "simple")])
+def test_alpha_is_the_exact_optimum_at_every_iteration(backend, mode, gap_mode,
+                                                       substitution_mode, monkeypatch):
+    calls = _record_alpha_fits(monkeypatch)
+    _, A, B, y = _data(20)
+    res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, max_iter=4)
+    assert len(calls) == 4
+    for scores, labels, alpha in calls:
+        assert alpha == pytest.approx(optimal_alpha(scores, labels), abs=1e-10)
+    assert res["alpha"] == calls[-1][2]
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_alpha_stays_exact_when_the_optimum_jumps_far(backend, monkeypatch):
+    """A large summed-gradient step moves every score far, so alpha* jumps between iterations."""
+    calls = _record_alpha_fits(monkeypatch)
+    _, A, B, y = _data(21)
+    _run_on(backend, A, B, y, "local", "affine", "general", max_iter=4,
+            stepfunction=create_constant_step(5.0))
+    jumps = [abs(b[2] - a[2]) for a, b in zip(calls, calls[1:])]
+    assert max(jumps) > 10
+    for scores, labels, alpha in calls:
+        ref = optimal_alpha(scores, labels, bracket=(alpha - 100.0, alpha + 100.0))
+        assert alpha == pytest.approx(ref, abs=1e-9)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_bfgs_alpha_solver_reaches_the_same_fit(backend):
+    _, A, B, y = _data(22)
+    newton = _run_on(backend, A, B, y, "local", "affine", "general", max_iter=3)
+    bfgs = _run_on(backend, A, B, y, "local", "affine", "general", max_iter=3,
+                   alpha_solver="bfgs")
+    assert bfgs["alpha"] == pytest.approx(newton["alpha"], abs=1e-4)
+    _assert_params_equal(bfgs, newton, _param_keys("affine", "general"), atol=1e-4)
+
+
+def test_unknown_alpha_solver_is_rejected():
+    _, A, B, y = _data(23)
+    with pytest.raises(AssertionError):
+        discrimalign(A, B, y, max_iter=0, alpha_solver="newton-cg")

@@ -222,6 +222,15 @@ uv run python -m src.infer --model model.pkl --input examples/mirna_pairs.csv --
 
 `num_threads=0`, the default, chooses the thread count automatically: all logical cores with the nwgrad backend, and one thread with the Biopython backend, whose threads contend for Python's global interpreter lock and only slow it down. Any other value is used as given. For long sequences such as full-length proteins, the number of physical cores can be faster than all logical cores; pass it explicitly.
 
+### Intercept fit
+
+At every iteration the intercept α is refitted to the current alignment scores. `alpha_solver` selects how:
+
+- `"safeguarded_newton"` (default): Newton's method on dL/dα, which is strictly decreasing in α, so its root is the unique optimum. Plain Newton steps are used while they are small, as they are when α changes little between iterations; otherwise the root is bracketed and Newton steps are combined with bisection. The result is exact to rounding from any starting value.
+- `"bfgs"`: the previous `scipy.optimize.minimize` fit. When the optimum moves far between iterations, as with `subgradient_scale=1` on large datasets, it can stop far from the optimum.
+
+On all 2.5 million Manakov training pairs, 300 iterations took 18.4 minutes with the default against 29.6 minutes with `"bfgs"`, and gave the same fit.
+
 ### Backends
 
 `backend` selects where alignment scores and subgradients come from:
@@ -246,6 +255,7 @@ Compared with earlier versions of DiscrimAlign:
 - In `symmetric` and `general` substitution mode with linear gaps, the initial estimate fits one coefficient on the number of gap columns. It previously added the gap-open and gap-extend coefficients of an affine fit.
 - Empty sequences raise a `ValueError` before any alignment work.
 - The default backend is nwgrad, and `num_threads` defaults to automatic.
+- The intercept α is fitted exactly by a safeguarded Newton method (`alpha_solver="safeguarded_newton"`); the previous BFGS fit is available as `alpha_solver="bfgs"`. With labels of only one class, fitting α now raises a `ValueError`, since the likelihood then has no finite maximum.
 
 ## Running tests
 

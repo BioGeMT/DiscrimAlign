@@ -3,9 +3,10 @@ import numpy as np
 import pytest
 from Bio.Align import PairwiseAligner
 
-from src.logit_link import (d2lda2, dlda, logit_logL, logit_partial_scores,
+from src.logit_link import (d2lda2, dlda, fit_alpha, logit_logL, logit_partial_scores,
                             logit_subgradient)
 from src.optimization import EmptyLocalAlignment
+from tests.helpers import optimal_alpha
 
 
 # --- logit_partial_scores ---------------------------------------------------
@@ -134,6 +135,56 @@ def test_d2lda2_is_negative():
 
 def test_dlda_vanishes_when_mean_prediction_matches_mean_label():
     assert dlda(np.array([0.25, 0.75]), np.array([0, 1])) == pytest.approx(0.0)
+
+
+# --- fit_alpha -------------------------------------------------------------
+
+def _alpha_data(seed, n=500, offset=0.0):
+    rng = np.random.default_rng(seed)
+    scores = rng.normal(-3.0, 2.0, n) + offset
+    labels = (rng.random(n) < 1.0 / (1.0 + np.exp(-(scores - offset + 1.5)))).astype(int)
+    return scores, labels
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("start", [0.0, 1e-3, 0.5, -5.0, 20.0, -500.0, 500.0])
+def test_fit_alpha_finds_the_root_from_any_start(seed, start):
+    scores, labels = _alpha_data(seed)
+    ref = optimal_alpha(scores, labels)
+    alpha = fit_alpha(scores, labels, ref + start)
+    assert alpha == pytest.approx(ref, abs=1e-10)
+    assert abs(dlda(logit_partial_scores(scores, alpha), labels)) < 1e-8
+
+
+@pytest.mark.parametrize("offset", [300.0, -300.0, 1600.0])
+def test_fit_alpha_follows_a_large_jump_of_the_optimum(offset):
+    """Every score shifted far, as after an unscaled step on large data: alpha* moves by -offset."""
+    scores, labels = _alpha_data(1, offset=offset)
+    ref = optimal_alpha(scores, labels, bracket=(-offset - 200.0, -offset + 200.0))
+    assert fit_alpha(scores, labels, 0.0) == pytest.approx(ref, abs=1e-9)
+
+
+def test_fit_alpha_does_not_depend_on_the_start():
+    scores, labels = _alpha_data(2)
+    results = [fit_alpha(scores, labels, start) for start in (-50.0, -1.0, 0.0, 3.0, 50.0)]
+    assert max(results) - min(results) < 1e-10
+
+
+def test_fit_alpha_matches_mean_label_when_scores_are_equal():
+    labels = np.array([1, 0, 0, 1, 1, 0, 1, 1])
+    alpha = fit_alpha(np.zeros(len(labels)), labels, 0.0)
+    assert 1.0 / (1.0 + np.exp(-alpha)) == pytest.approx(labels.mean(), abs=1e-12)
+
+
+def test_fit_alpha_returns_python_float_and_accepts_lists():
+    alpha = fit_alpha([0.0, 1.0, -1.0, 2.0], [1, 0, 0, 1], 0)
+    assert isinstance(alpha, float)
+
+
+@pytest.mark.parametrize("labels", [[1, 1, 1], [0, 0, 0]])
+def test_fit_alpha_needs_both_classes(labels):
+    with pytest.raises(ValueError, match="both classes"):
+        fit_alpha([0.0, 1.0, 2.0], labels, 0.0)
 
 
 # --- logit_subgradient on hand-built alignments -----------------------------
