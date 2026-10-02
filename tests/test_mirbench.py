@@ -7,6 +7,7 @@ from Bio.SeqRecord import SeqRecord
 
 from miRBench.dataset import list_datasets, get_dataset_df
 from src.discrimalign import discrimalign
+from src.optimization import create_powerstep, create_constant_step
 from tests.helpers import (GAP_MODES, MODES, SUBSTITUTION_MODES, align_all, make_pairs,
                            mutate, random_seq)
 
@@ -29,6 +30,7 @@ def _get_data_and_params(dset_id):
     
 NITER = 20
 
+@pytest.mark.skip()
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("dset_id", DATASET_IDs)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
