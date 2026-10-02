@@ -1,4 +1,5 @@
 """Integration tests for src.discrimalign.discrimalign on small fixtures."""
+import importlib
 import sys
 import warnings
 from copy import deepcopy
@@ -550,7 +551,10 @@ def test_discrimalign_uses_default_stepfunction():
 # --- alpha_solver -------------------------------------------------------------
 
 def _record_alpha_fits(monkeypatch):
-    """Wrap discrimalign's fit_alpha, recording (scores, labels, result) per call."""
+    """
+    Record (scores, labels, alpha) for every alpha fit: discrimalign's Python
+    fit_alpha, and nwgrad.logistic.step where the nwgrad backend uses it.
+    """
     module = sys.modules["src.discrimalign"]
     calls = []
     original = module.fit_alpha
@@ -561,6 +565,19 @@ def _record_alpha_fits(monkeypatch):
         return alpha
 
     monkeypatch.setattr(module, "fit_alpha", recording)
+
+    backend = importlib.import_module("src.nwgrad_backend")
+    if backend.nwgrad_logistic is not None:
+        logistic = backend.nwgrad_logistic
+
+        class RecordingLogistic:
+            @staticmethod
+            def step(batch, labels, alpha0):
+                st = logistic.step(batch, labels, alpha0)
+                calls.append((np.array(batch.scores()), np.array(labels, dtype=float), st.alpha))
+                return st
+
+        monkeypatch.setattr(backend, "nwgrad_logistic", RecordingLogistic)
     return calls
 
 
@@ -612,3 +629,20 @@ def test_unknown_alpha_solver_is_rejected():
     _, A, B, y = _data(23)
     with pytest.raises(AssertionError):
         discrimalign(A, B, y, max_iter=0, alpha_solver="newton-cg")
+
+
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substitution_mode, monkeypatch):
+    """nwgrad.logistic.step and the numpy path give the same fit."""
+    backend = importlib.import_module("src.nwgrad_backend")
+    if backend.nwgrad_logistic is None:
+        pytest.skip("nwgrad without nwgrad.logistic")
+    _, A, B, y = _data(24)
+    kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
+    native = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
+    monkeypatch.setattr(backend, "nwgrad_logistic", None)
+    python = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
+    assert native["alpha"] == pytest.approx(python["alpha"], rel=1e-12, abs=1e-12)
+    np.testing.assert_allclose(native["loglik_trajectory"], python["loglik_trajectory"], rtol=1e-12)
+    _assert_params_equal(native, python, _param_keys(gap_mode, substitution_mode),
+                         rtol=1e-12, atol=1e-12)

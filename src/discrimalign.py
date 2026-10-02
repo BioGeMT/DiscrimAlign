@@ -135,6 +135,59 @@ class _BiopythonEngine:
         return logit_subgradient(self.alignments, logit_scores, labels, alpha, self.alphabet)
 
 
+def _python_logistic_step(engine, updated_parameters, labels, labels_float, one_minus_labels,
+                          alpha_solver, loglik_trajectory, verbose):
+    """
+    Align, then one iteration's logistic work in numpy: the log-likelihood at
+    the current alpha (appended to loglik_trajectory), the alpha fit, and the
+    raw subgradient at the new alpha. Returns (new_alpha, subgradient).
+    """
+    alignment_scores = np.asarray(engine.scores(), dtype=float)
+    logit_scores = logit_partial_scores(alignment_scores,
+                                        updated_parameters['alpha'])
+    new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
+    loglik_trajectory.append(new_logL)
+    if verbose:
+        print("Current alpha:", updated_parameters['alpha'])
+        print('Current logL:', new_logL)
+##    EL = 0
+##    VL = 0
+##    for ls in logit_scores:
+##        if 1e-30 < ls < 1-1e-30:
+##            EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
+##            VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
+##    SDL = np.sqrt(VL)
+##    loglik_expectation.append(EL)
+##    loglik_sd.append(SDL)
+
+    # Optimize the logistic intercept (alpha)
+    if alpha_solver == 'safeguarded_newton':
+        new_alpha = fit_alpha(alignment_scores, labels_float, updated_parameters['alpha'],
+                              logit_scores0=logit_scores)
+    else:
+        def alpha_target(alpha):
+            logit_scores = logit_partial_scores(alignment_scores, alpha)
+            return -logit_logL(logit_scores, labels)
+
+        def alpha_fprime(alpha):
+            logit_scores = logit_partial_scores(alignment_scores, alpha)
+            return -np.sum(labels - logit_scores)
+
+        new_alpha = minimize(alpha_target,
+                             updated_parameters['alpha'],
+                             jac=alpha_fprime)['x'][0]
+
+    logit_scores = logit_partial_scores(alignment_scores, new_alpha)
+    if verbose:
+        new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
+        print("Updated alpha:", new_alpha)
+        print('Updated logL:', new_logL)
+
+    # The subgradient at the new alpha
+    subgradient = engine.raw_subgradient(logit_scores, labels_float, new_alpha)
+    return new_alpha, subgradient
+
+
 def discrimalign(seqlistA, seqlistB,
                  labels,
                  baseline_aligner=None,
@@ -276,6 +329,10 @@ def discrimalign(seqlistA, seqlistB,
     if not np.isin(labels_float, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
     one_minus_labels = 1 - labels_float
+    # nwgrad releases with nwgrad.logistic do the logistic part of each
+    # iteration in C++ (the same alpha fit, same probabilities).
+    use_logistic_step = (alpha_solver == 'safeguarded_newton'
+                         and getattr(engine, 'has_logistic_step', False))
 
     # Subgradient refinement
     loglik_trajectory = []
@@ -287,51 +344,21 @@ def discrimalign(seqlistA, seqlistB,
             print('Start of iteration', iternb)
         # Realign with the new parameters
         engine.set_params(updated_parameters)
-        alignment_scores = np.asarray(engine.scores(), dtype=float)
-        logit_scores = logit_partial_scores(alignment_scores,
-                                            updated_parameters['alpha'])
-        new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
-        loglik_trajectory.append(new_logL)
-        if verbose:
-            print("Current alpha:", updated_parameters['alpha'])
-            print('Current logL:', new_logL)
-##        EL = 0
-##        VL = 0
-##        for ls in logit_scores:
-##            if 1e-30 < ls < 1-1e-30:
-##                EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
-##                VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
-##        SDL = np.sqrt(VL)
-##        loglik_expectation.append(EL)
-##        loglik_sd.append(SDL)
-
-        # Optimize the logistic intercept (alpha)
-        if alpha_solver == 'safeguarded_newton':
-            new_alpha = fit_alpha(alignment_scores, labels_float, updated_parameters['alpha'],
-                                  logit_scores0=logit_scores)
+        if use_logistic_step:
+            # Alignment, log-likelihood, alpha fit and subgradient in nwgrad.
+            new_logL, new_alpha, subgradient = engine.logistic_step(
+                labels_float, updated_parameters['alpha'])
+            loglik_trajectory.append(new_logL)
+            if verbose:
+                print("Current alpha:", updated_parameters['alpha'])
+                print('Current logL:', new_logL)
+                print("Updated alpha:", new_alpha)
+            updated_parameters['alpha'] = new_alpha
         else:
-            def alpha_target(alpha):
-                logit_scores = logit_partial_scores(alignment_scores, alpha)
-                return -logit_logL(logit_scores, labels)
-
-            def alpha_fprime(alpha):
-                logit_scores = logit_partial_scores(alignment_scores, alpha)
-                return -np.sum(labels - logit_scores)
-
-            new_alpha = minimize(alpha_target,
-                                 updated_parameters['alpha'],
-                                 jac=alpha_fprime)['x'][0]
-
-        logit_scores = logit_partial_scores(alignment_scores, new_alpha)
-        if verbose:
-            new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
-            print("Updated alpha:", new_alpha)
-            print('Updated logL:', new_logL)
-
-        updated_parameters['alpha'] = new_alpha
-
-        # Make a subgradient step
-        subgradient = engine.raw_subgradient(logit_scores, labels_float, new_alpha)
+            new_alpha, subgradient = _python_logistic_step(
+                engine, updated_parameters, labels, labels_float, one_minus_labels,
+                alpha_solver, loglik_trajectory, verbose)
+            updated_parameters['alpha'] = new_alpha
         if subgradient_scale != 1.0:
             subgradient['Gap opens'] *= subgradient_scale
             subgradient['Gap extends'] *= subgradient_scale

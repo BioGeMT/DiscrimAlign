@@ -7,6 +7,11 @@ import numpy as np
 import nwgrad
 from Bio.Align import substitution_matrices
 
+try:  # the logistic link in C++, in nwgrad releases that have it
+    import nwgrad.logistic as nwgrad_logistic
+except ImportError:
+    nwgrad_logistic = None
+
 from .nwgrad_params import GAP_FIELDS, gap_counts, grad_to_raw, to_nwgrad
 from .optimization import CountArrays
 
@@ -90,6 +95,21 @@ class NwgradEngine:
     def scores(self):
         self.batch.score_and_grad()
         return self.batch.scores()
+
+    @property
+    def has_logistic_step(self):
+        return nwgrad_logistic is not None
+
+    def logistic_step(self, labels, alpha0):
+        """
+        Align, then one iteration's logistic work in nwgrad (C++, parallel):
+        the log-likelihood at alpha0, the fitted alpha (as fit_alpha()), and
+        the raw subgradient at that alpha, in logit_subgradient's format.
+        labels: float64 array of 0s and 1s.
+        """
+        self.batch.score_and_grad()
+        step = nwgrad_logistic.step(self.batch, labels, alpha0)
+        return step.loglik_at_alpha0, step.alpha, grad_to_raw(step.grad)
 
     def raw_counts(self):
         """Per-pair counts in logit_subgradient's format, for the scores just computed."""
