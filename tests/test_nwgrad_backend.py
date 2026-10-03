@@ -407,9 +407,9 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
     engine_init = nwgrad_backend.NwgradEngine.__init__
     align_pairs = module._align_pairs
 
-    def spy_engine(self, *args):
+    def spy_engine(self, *args, **kwargs):
         seen.append(args[-1])
-        engine_init(self, *args)
+        engine_init(self, *args, **kwargs)
 
     def spy_align(seqsA, seqsB, aligner, num_threads):
         seen.append(num_threads)
@@ -430,3 +430,32 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
     one = discrimalign(A, B, y, num_threads=1, **kwargs)
     for key in _param_keys("affine", "general") | set(TRAJECTORY_KEYS):
         np.testing.assert_array_equal(np.asarray(auto[key]), np.asarray(one[key]), err_msg=key)
+
+
+@pytest.mark.parametrize("mode", ["local", "global"])
+@pytest.mark.parametrize("gap_mode", ["affine", "linear"])
+@pytest.mark.parametrize("substitution_mode", ["general", "simple"])
+def test_nwgrad_alignments_are_the_paths_nwgrad_scored(mode, gap_mode, substitution_mode):
+    """The returned alignments are nwgrad's own paths: counting them gives exactly the
+    per-pair counts nwgrad's gradient used at the final parameters, ties included
+    (simple mode has many), and their scores are nwgrad's scores."""
+    if not hasattr(nwgrad.SeqPairDouble, "coordinates"):
+        pytest.skip("nwgrad without SeqPair.coordinates()")
+    from src.logit_link import logit_subgradient
+    from src.nwgrad_backend import NwgradEngine
+    rng, A, B, y = _data(31, n=16, length=14)
+    res = discrimalign(A, B, y, aligner_mode=mode, gap_mode=gap_mode,
+                       substitution_mode=substitution_mode, backend="nwgrad", max_iter=3,
+                       stepfunction=create_constant_step(0.01), alphabet="ACGT")
+    engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 2)
+    engine.set_params(res)
+    scores = engine.scores()
+    counts = engine.count_arrays()
+    for i, aln in enumerate(res["alignments"]):
+        assert aln.score == scores[i]
+        c = logit_subgradient([aln], [0.0], [1], res["alpha"], "ACGT")
+        np.testing.assert_array_equal(np.asarray(c["Substitutions"]), counts.substitutions[i])
+        if gap_mode == "affine":
+            assert (c["Gap opens"], c["Gap extends"]) == (counts.gap_opens[i], counts.gap_extends[i])
+        else:   # the linear model reports gap columns only
+            assert c["Gap opens"] + c["Gap extends"] == counts.gap_opens[i] + counts.gap_extends[i]

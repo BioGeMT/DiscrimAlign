@@ -222,6 +222,8 @@ uv run python -m src.infer --model model.pkl --input examples/mirna_pairs.csv --
 
 `num_threads=0`, the default, chooses the thread count automatically: all logical cores with the nwgrad backend, and one thread with the Biopython backend, whose threads contend for Python's global interpreter lock and only slow it down. Any other value is used as given. For long sequences such as full-length proteins, the number of physical cores can be faster than all logical cores; pass it explicitly.
 
+`nwgrad_fill` selects nwgrad's vectorized DP fill: `"striped"` (default), `"rowwise"` or `"interpair"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. On short pairs such as miRNA-target sites the default is the slowest: on all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`, which aligns several pairs at once, one per vector lane. The latter two need an nwgrad with `SeqPairBatch.fill` (currently nwgrad `main`, unreleased); on long sequences such as proteins, keep the default.
+
 ### Intercept fit
 
 At every iteration the intercept α is refitted to the current alignment scores. `alpha_solver` selects how:
