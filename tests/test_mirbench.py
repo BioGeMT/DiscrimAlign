@@ -1,6 +1,12 @@
 """
 Short run on the miRBench datasets. Similar to a standard analysis.
+
+Slow and optional: it downloads miRBench datasets and fits every mode on the full
+training sets (millions of pairs), so it runs only with DISCRIMALIGN_RUN_MIRBENCH=1.
 """
+import os
+
+import numpy as np
 import pytest
 from Bio.Seq import Seq 
 from Bio.SeqRecord import SeqRecord
@@ -29,7 +35,13 @@ def _get_data_and_params(dset_id):
         stepfunction = create_constant_step(0.0000005)
     return (mirlist, genelist, label_list, stepfunction)
     
-NITER = 20
+NITER = 2
+
+pytestmark = [
+    pytest.mark.slow,
+    pytest.mark.skipif(os.environ.get("DISCRIMALIGN_RUN_MIRBENCH") != "1",
+                       reason="miRBench end-to-end runs: set DISCRIMALIGN_RUN_MIRBENCH=1"),
+]
 
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("dset_id", DATASET_IDs)

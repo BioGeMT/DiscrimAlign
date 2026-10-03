@@ -31,5 +31,5 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-    "slow: end-to-end runs on larger simulated data (deselect with -m 'not slow')",
+    "slow: end-to-end runs on larger data (deselect with -m 'not slow'); the miRBench runs also need DISCRIMALIGN_RUN_MIRBENCH=1",
 ]
