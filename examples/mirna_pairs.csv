@@ -1,0 +1,5 @@
+id,sequence_a,sequence_b
+example_positive_like,AUGCUA,AUGGUA
+example_short,CUGA,CUGU
+example_mismatch,AUGCUA,CUGU
+example_dna_input,ATGCTA,ATGGTA
