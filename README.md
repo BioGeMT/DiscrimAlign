@@ -123,6 +123,18 @@ The output CSV includes:
 
 By default, `--normalize auto` converts `U`/`T` to match the trained model alphabet. Use `--normalize none` only if you want to disable this behavior.
 
+If your second sequence column contains target/gene sequences before reverse-complementing, pass `--reverse-complement-b` so the second sequence is reverse-complemented before normalization and scoring:
+
+```bash
+uv run python -m src.infer \
+  --model manakov \
+  --input my_pairs.csv \
+  --output my_predictions.csv \
+  --seq-a-column noncodingRNA \
+  --seq-b-column gene \
+  --reverse-complement-b
+```
+
 ### 4. Use Your Own CSV Columns
 
 If your input columns have different names, pass them explicitly:
