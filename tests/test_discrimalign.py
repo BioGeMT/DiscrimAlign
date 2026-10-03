@@ -167,7 +167,9 @@ def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode, backend
     res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0)
     realigned = align_all(A, B, res["aligner"])
     scores = np.array([a.score for a in res["alignments"]])
-    np.testing.assert_array_equal(scores, [a.score for a in realigned])
+    # nwgrad returns its own paths and scores, equal to Biopython's up to summation order.
+    tol = 0 if backend == "biopython" else 1e-12
+    np.testing.assert_allclose(scores, [a.score for a in realigned], rtol=tol, atol=tol)
     np.testing.assert_allclose(res["alignment_logit_scores"], expit(res["alpha"] + scores), rtol=1e-14)
     assert res["final_loglik"] == pytest.approx(logit_logL(res["alignment_logit_scores"], y), rel=1e-14)
     # The returned aligner carries the returned parameters.

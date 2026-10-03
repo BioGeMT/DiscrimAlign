@@ -211,7 +211,9 @@ def discrimalign(seqlistA, seqlistB,
     'nwgrad' (the default) or 'biopython' (PairwiseAligner). With 'nwgrad', the initial
     estimate is fitted on nwgrad's alignments of the baseline too, and a
     baseline_aligner must have uniform gap scores and no wildcard. The
-    returned aligner and alignments always use Biopython.
+    returned aligner is a Biopython PairwiseAligner, and the returned alignments
+    are Biopython Alignment objects; with 'nwgrad' they are nwgrad's own paths
+    (needs nwgrad with SeqPair.coordinates(); older ones realign with Biopython).
 
     num_threads=0 (the default) picks the thread count automatically: all
     logical cores with 'nwgrad', 1 with 'biopython', whose threads contend
@@ -457,8 +459,12 @@ def discrimalign(seqlistA, seqlistB,
     engine.set_params(updated_parameters)
     alignment_scores = engine.scores()
     if backend == 'nwgrad':
-        alnlist = (_align_pairs(seqlistA, seqlistB, aligner, num_threads)
-                   if return_alignments else None)
+        if not return_alignments:
+            alnlist = None
+        elif engine.has_alignments:
+            alnlist = engine.alignments()
+        else:   # an nwgrad without SeqPair.coordinates(): realign with Biopython
+            alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
     else:
         alnlist = engine.alignments
     logit_scores = logit_partial_scores(alignment_scores,

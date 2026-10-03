@@ -13,7 +13,7 @@ except ImportError:
     nwgrad_logistic = None
 
 from .nwgrad_params import GAP_FIELDS, gap_counts, grad_to_raw, to_nwgrad
-from .optimization import CountArrays
+from .optimization import CountArrays, EmptyLocalAlignment
 
 
 def baseline_parameters(aligner, gap_mode, alphabet):
@@ -90,6 +90,7 @@ class NwgradEngine:
         """
         nw_params = to_nwgrad(params, self.gap_mode,
                               substitution_mode or self.substitution_mode, self.alphabet)
+        self._nw_params = nw_params
         if self._built:
             self.batch.set_params(nw_params)
         else:
@@ -97,6 +98,41 @@ class NwgradEngine:
                                 gap_model=self.gap_mode, mode=self.mode,
                                 grad_mode='hard')
             self._built = True
+
+    @property
+    def has_alignments(self):
+        return hasattr(nwgrad.SeqPairDouble, 'coordinates')
+
+    def alignments(self, chunk_size=100_000):
+        """
+        Every pair's alignment at the parameters last set: a Bio.Align.Alignment
+        with .score, or EmptyLocalAlignment for a local pair with no
+        positive-scoring alignment. These are nwgrad's own paths, the ones the
+        scores and subgradients come from, so on ties they agree with them, which
+        a Biopython realignment need not. Recovering a path needs pair-owned DP
+        tables, so the pairs are aligned chunk_size at a time to bound memory.
+        """
+        from Bio.Align import Alignment
+        out = []
+        for start in range(0, len(self.seqlistA), chunk_size):
+            seqs_a = self.seqlistA[start:start + chunk_size]
+            seqs_b = self.seqlistB[start:start + chunk_size]
+            batch = nwgrad.SeqPairBatchDouble(n_threads=self.batch.n_threads,
+                                              traceback='pointers')
+            batch.add_many(seqs_a, seqs_b, self._nw_params, gap_model=self.gap_mode,
+                           mode=self.mode, grad_mode='none')
+            batch.alloc_dp()
+            batch.align_full()
+            for i, (seq_a, seq_b) in enumerate(zip(seqs_a, seqs_b)):
+                pair = batch[i]
+                coordinates = pair.coordinates()
+                if (coordinates[:, 0] == coordinates[:, -1]).all():
+                    out.append(EmptyLocalAlignment())
+                    continue
+                alignment = Alignment([seq_a, seq_b], coordinates)
+                alignment.score = pair.score
+                out.append(alignment)
+        return out
 
     def scores(self):
         self.batch.score_and_grad()
