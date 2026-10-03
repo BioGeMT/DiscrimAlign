@@ -112,16 +112,9 @@ def test_nwgrad_initial_estimate_is_fitted_on_nwgrad_counts(mode, gap_mode, subs
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
 
-NWGRAD_HAS_GRADS = hasattr(nwgrad.SeqPairBatchDouble, "grads")
-
-
-@pytest.mark.parametrize("path", [
-    "count_arrays", "_count_arrays_per_pair",
-    pytest.param("_count_arrays_bulk", marks=pytest.mark.skipif(
-        not NWGRAD_HAS_GRADS, reason="nwgrad without SeqPairBatch.grads()"))])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode, path):
-    """count_arrays(), by either path, gives exactly the per-pair counts of raw_counts()."""
+def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode):
+    """count_arrays() gives exactly the per-pair counts of raw_counts()."""
     from src.nwgrad_backend import NwgradEngine
     from src.optimization import _count_arrays_from_raw
     rng, A, B, _ = _data(5, n=20)
@@ -132,7 +125,7 @@ def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode, path):
                                 (random_params(rng, gap_mode, substitution_mode), None)):
         engine.set_params(params, substitution_mode=params_mode)
         engine.scores()
-        counts = getattr(engine, path)()
+        counts = engine.count_arrays()
         expected = _count_arrays_from_raw(engine.raw_counts())
         assert counts.alphabet == expected.alphabet
         for field in ("substitutions", "gap_opens", "gap_extends"):
@@ -439,8 +432,6 @@ def test_nwgrad_alignments_are_the_paths_nwgrad_scored(mode, gap_mode, substitut
     """The returned alignments are nwgrad's own paths: counting them gives exactly the
     per-pair counts nwgrad's gradient used at the final parameters, ties included
     (simple mode has many), and their scores are nwgrad's scores."""
-    if not hasattr(nwgrad.SeqPairDouble, "coordinates"):
-        pytest.skip("nwgrad without SeqPair.coordinates()")
     from src.logit_link import logit_subgradient
     from src.nwgrad_backend import NwgradEngine
     rng, A, B, y = _data(31, n=16, length=14)

@@ -212,8 +212,7 @@ def discrimalign(seqlistA, seqlistB,
     estimate is fitted on nwgrad's alignments of the baseline too, and a
     baseline_aligner must have uniform gap scores and no wildcard. The
     returned aligner is a Biopython PairwiseAligner, and the returned alignments
-    are Biopython Alignment objects; with 'nwgrad' they are nwgrad's own paths
-    (needs nwgrad with SeqPair.coordinates(); older ones realign with Biopython).
+    are Biopython Alignment objects; with 'nwgrad' they are nwgrad's own paths.
 
     num_threads=0 (the default) picks the thread count automatically: all
     logical cores with 'nwgrad', 1 with 'biopython', whose threads contend
@@ -229,7 +228,7 @@ def discrimalign(seqlistA, seqlistB,
     'rowwise' or 'interpair'. All three give the same scores, gradients and fit,
     bit for bit. On short pairs such as miRNA-target sites, 'rowwise' is about 2x
     faster than 'striped', and 'interpair' (several pairs per vector) faster
-    still. The latter two need an nwgrad with SeqPairBatch.fill.
+    still.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -343,10 +342,10 @@ def discrimalign(seqlistA, seqlistB,
     if not np.isin(labels_float, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
     one_minus_labels = 1 - labels_float
-    # nwgrad releases with nwgrad.logistic do the logistic part of each
-    # iteration in C++ (the same alpha fit, same probabilities).
+    # The nwgrad engine does the logistic part of each iteration in C++ (the
+    # same alpha fit, same probabilities); the Biopython engine has no such step.
     use_logistic_step = (alpha_solver == 'safeguarded_newton'
-                         and getattr(engine, 'has_logistic_step', False))
+                         and hasattr(engine, 'logistic_step'))
 
     # Subgradient refinement
     loglik_trajectory = []
@@ -459,12 +458,7 @@ def discrimalign(seqlistA, seqlistB,
     engine.set_params(updated_parameters)
     alignment_scores = engine.scores()
     if backend == 'nwgrad':
-        if not return_alignments:
-            alnlist = None
-        elif engine.has_alignments:
-            alnlist = engine.alignments()
-        else:   # an nwgrad without SeqPair.coordinates(): realign with Biopython
-            alnlist = _align_pairs(seqlistA, seqlistB, aligner, num_threads)
+        alnlist = engine.alignments() if return_alignments else None
     else:
         alnlist = engine.alignments
     logit_scores = logit_partial_scores(alignment_scores,

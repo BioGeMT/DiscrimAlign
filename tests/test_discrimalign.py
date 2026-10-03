@@ -569,17 +569,16 @@ def _record_alpha_fits(monkeypatch):
     monkeypatch.setattr(module, "fit_alpha", recording)
 
     backend = importlib.import_module("src.nwgrad_backend")
-    if backend.nwgrad_logistic is not None:
-        logistic = backend.nwgrad_logistic
+    logistic = backend.nwgrad_logistic
 
-        class RecordingLogistic:
-            @staticmethod
-            def step(batch, labels, alpha0):
-                st = logistic.step(batch, labels, alpha0)
-                calls.append((np.array(batch.scores()), np.array(labels, dtype=float), st.alpha))
-                return st
+    class RecordingLogistic:
+        @staticmethod
+        def step(batch, labels, alpha0):
+            st = logistic.step(batch, labels, alpha0)
+            calls.append((np.array(batch.scores()), np.array(labels, dtype=float), st.alpha))
+            return st
 
-        monkeypatch.setattr(backend, "nwgrad_logistic", RecordingLogistic)
+    monkeypatch.setattr(backend, "nwgrad_logistic", RecordingLogistic)
     return calls
 
 
@@ -635,14 +634,13 @@ def test_unknown_alpha_solver_is_rejected():
 
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substitution_mode, monkeypatch):
-    """nwgrad.logistic.step and the numpy path give the same fit."""
+    """nwgrad.logistic.step and the numpy path (the Biopython backend's) give the same fit."""
     backend = importlib.import_module("src.nwgrad_backend")
-    if backend.nwgrad_logistic is None:
-        pytest.skip("nwgrad without nwgrad.logistic")
     _, A, B, y = _data(24)
     kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
     native = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
-    monkeypatch.setattr(backend, "nwgrad_logistic", None)
+    # Without logistic_step, discrimalign() runs the numpy path on the nwgrad engine.
+    monkeypatch.delattr(backend.NwgradEngine, "logistic_step")
     python = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
     assert native["alpha"] == pytest.approx(python["alpha"], rel=1e-12, abs=1e-12)
     np.testing.assert_allclose(native["loglik_trajectory"], python["loglik_trajectory"], rtol=1e-12)
@@ -650,21 +648,10 @@ def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substituti
                          rtol=1e-12, atol=1e-12)
 
 
-def _has_fill(fill):
-    import nwgrad
-    try:
-        nwgrad.SeqPairBatchDouble(n_threads=1).fill = fill
-    except (AttributeError, ValueError):
-        return False
-    return True
-
-
 @pytest.mark.parametrize("fill", ["rowwise", "interpair"])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_fill_gives_the_same_fit(mode, gap_mode, substitution_mode, fill):
     """nwgrad_fill changes only the speed: the fit is bit-identical."""
-    if not _has_fill(fill):
-        pytest.skip(f"nwgrad without SeqPairBatch.fill = {fill!r}")
     _, A, B, y = _data(25)
     kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
     striped = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
