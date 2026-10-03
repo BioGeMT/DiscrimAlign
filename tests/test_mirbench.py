@@ -35,7 +35,7 @@ def _get_data_and_params(dset_id):
         stepfunction = create_constant_step(0.0000005)
     return (mirlist, genelist, label_list, stepfunction)
     
-NITER = 2
+NITER = 20
 
 pytestmark = [
     pytest.mark.slow,
