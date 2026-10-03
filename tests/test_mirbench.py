@@ -22,15 +22,15 @@ def _get_data_and_params(dset_id):
     mirlist = [str(Seq(seq)) for seq in mirlist]
     genelist = train['gene']
     genelist = [str(Seq(seq).reverse_complement()) for seq in genelist]
+    label_list = list(train['label'])
     if dset_id == 0:
         stepfunction = create_constant_step(0.00005)
     else:
         stepfunction = create_constant_step(0.0000005)
-    return (mirlist, genelist, stepfunction)
+    return (mirlist, genelist, label_list, stepfunction)
     
 NITER = 20
 
-@pytest.mark.skip()
 @pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("dset_id", DATASET_IDs)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
@@ -38,7 +38,7 @@ def test_mirbench_run(dset_id, mode, gap_mode, substitution_mode, backend):
     """
     Check if discrimalign runs properly using data preprocessed with BioPython.
     """
-    mirlist, genelist, stepfunction = _get_data_and_params(dset_id)
+    mirlist, genelist, labels, stepfunction = _get_data_and_params(dset_id)
     res = discrimalign(mirlist, genelist, labels, 
                     stepfunction=stepfunction,
                     aligner_mode=mode,
