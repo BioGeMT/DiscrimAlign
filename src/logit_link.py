@@ -83,13 +83,22 @@ def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter
     logit_scores0, if given, must be logit_partial_scores(alignment_scores,
     alpha0); a caller that already has them saves one pass over the data.
     """
-    alignment_scores = np.asarray(alignment_scores, dtype=float)
     labels = np.asarray(labels, dtype=float)
     positives = np.sum(labels)
     if positives == 0 or positives == len(labels):
         raise ValueError('Fitting alpha needs labels of both classes: with one class '
                          'the likelihood has no finite maximum')
+    return _fit_alpha_unchecked(np.asarray(alignment_scores, dtype=float), labels, alpha0,
+                                tol, max_newton, maxiter, logit_scores0)
 
+
+def _fit_alpha_unchecked(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8,
+                         maxiter=200, logit_scores0=None):
+    """
+    fit_alpha() for float arrays of scores and labels, the labels already
+    known to be 0 or 1 with both classes present. For loops that fit alpha on
+    the same labels many times.
+    """
     def derivatives(alpha, logit_scores=None):
         if logit_scores is None:
             logit_scores = logit_partial_scores(alignment_scores, alpha)

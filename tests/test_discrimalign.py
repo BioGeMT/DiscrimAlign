@@ -136,6 +136,32 @@ def test_single_class_labels_without_initial_parameters_raise(backend):
         _run_on(backend, A, B, np.ones(len(A), dtype=int), "local", "affine", "simple")
 
 
+@pytest.mark.parametrize("backend", BACKENDS)
+@pytest.mark.parametrize("value", [0, 1])
+def test_single_class_labels_raise_before_any_work(backend, value, monkeypatch):
+    """Checked once at the start: also with a warm start, which skips the initial
+    estimate, and before anything is aligned."""
+    rng, A, B, _ = _data()
+    p0 = random_params(rng, "affine", "simple")
+    module = sys.modules["src.discrimalign"]
+    monkeypatch.setattr(module, "_align_pairs", lambda *a, **k: pytest.fail("aligned"))
+    with pytest.raises(ValueError, match="both classes"):
+        _run_on(backend, A, B, np.full(len(A), value), "local", "affine", "simple",
+                initial_parameters=p0)
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_non_binary_labels_raise_before_any_work(backend, monkeypatch):
+    rng, A, B, y = _data()
+    p0 = random_params(rng, "affine", "simple")
+    y = np.array(y, dtype=float)
+    y[0] = 2
+    module = sys.modules["src.discrimalign"]
+    monkeypatch.setattr(module, "_align_pairs", lambda *a, **k: pytest.fail("aligned"))
+    with pytest.raises(ValueError, match="0 or 1"):
+        _run_on(backend, A, B, y, "local", "affine", "simple", initial_parameters=p0)
+
+
 # --- result structure -------------------------------------------------------
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -555,18 +581,18 @@ def test_discrimalign_uses_default_stepfunction():
 def _record_alpha_fits(monkeypatch):
     """
     Record (scores, labels, alpha) for every alpha fit: discrimalign's Python
-    fit_alpha, and nwgrad.logistic.step where the nwgrad backend uses it.
+    _fit_alpha_unchecked, and nwgrad.logistic.step where the nwgrad backend uses it.
     """
     module = sys.modules["src.discrimalign"]
     calls = []
-    original = module.fit_alpha
+    original = module._fit_alpha_unchecked
 
     def recording(scores, labels, alpha0, **kwargs):
         alpha = original(scores, labels, alpha0, **kwargs)
         calls.append((np.array(scores, dtype=float), np.array(labels, dtype=float), alpha))
         return alpha
 
-    monkeypatch.setattr(module, "fit_alpha", recording)
+    monkeypatch.setattr(module, "_fit_alpha_unchecked", recording)
 
     backend = importlib.import_module("src.nwgrad_backend")
     logistic = backend.nwgrad_logistic

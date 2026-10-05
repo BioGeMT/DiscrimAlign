@@ -11,7 +11,7 @@ from math import ceil
 import os
 from .optimization import (create_powerstep, get_initial_estimate,
                            get_initial_estimate_from_counts, get_first_alignment)
-from .logit_link import (_logit_logL_unchecked, fit_alpha, logit_partial_scores, logit_logL,
+from .logit_link import (_fit_alpha_unchecked, _logit_logL_unchecked, logit_partial_scores,
                          logit_subgradient)
 
 
@@ -163,8 +163,9 @@ def _python_logistic_step(engine, updated_parameters, labels_float,
 
     # Optimize the logistic intercept (alpha)
     if alpha_solver == 'safeguarded_newton':
-        new_alpha = fit_alpha(alignment_scores, labels_float, updated_parameters['alpha'],
-                              logit_scores0=logit_scores)
+        new_alpha = _fit_alpha_unchecked(alignment_scores, labels_float,
+                                         updated_parameters['alpha'],
+                                         logit_scores0=logit_scores)
     else:
         def alpha_target(alpha):
             return -_logit_logL_unchecked(alignment_scores, alpha[0], labels_float)
@@ -248,6 +249,14 @@ def discrimalign(seqlistA, seqlistB,
         if empty:
             raise ValueError(f'{name} contains empty sequences (at indices {empty[:10]}); '
                              'every sequence needs at least one residue')
+    # The labels are checked once, here; the iterations use them as floats unchecked.
+    labels_float = np.asarray(labels, dtype=float)
+    if not np.isin(labels_float, [0, 1]).all():
+        raise ValueError('Labels can only be 0 or 1')
+    positives = np.sum(labels_float)
+    if positives == 0 or positives == len(labels_float):
+        raise ValueError('Labels of both classes are needed: with one class the '
+                         'likelihood has no finite maximum')
     if num_threads == 0 and backend == 'biopython':
         num_threads = 1
     elif num_threads == 0:
@@ -337,10 +346,6 @@ def discrimalign(seqlistA, seqlistB,
     _clip_gap_scores(updated_parameters, gap_mode)
     _configure_aligner(aligner, updated_parameters, gap_mode, substitution_mode)
 
-    # The loop uses the labels as floats, checked once.
-    labels_float = np.asarray(labels, dtype=float)
-    if not np.isin(labels_float, [0, 1]).all():
-        raise ValueError('Labels can only be 0 or 1')
     # The nwgrad engine does the logistic part of each iteration in C++ (the
     # same alpha fit, same probabilities); the Biopython engine has no such step.
     use_logistic_step = (alpha_solver == 'safeguarded_newton'
@@ -462,7 +467,8 @@ def discrimalign(seqlistA, seqlistB,
         alnlist = engine.alignments
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
-    new_logL = logit_logL(alignment_scores, updated_parameters['alpha'], labels)
+    new_logL = _logit_logL_unchecked(np.asarray(alignment_scores, dtype=float),
+                                     updated_parameters['alpha'], labels_float)
 ##    EL = 0
 ##    VL = 0
 ##    for ls in logit_scores:
