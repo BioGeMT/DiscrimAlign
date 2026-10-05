@@ -428,17 +428,20 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
 @pytest.mark.parametrize("mode", ["local", "global"])
 @pytest.mark.parametrize("gap_mode", ["affine", "linear"])
 @pytest.mark.parametrize("substitution_mode", ["general", "simple"])
-def test_nwgrad_alignments_are_the_paths_nwgrad_scored(mode, gap_mode, substitution_mode):
+@pytest.mark.parametrize("fill", ["striped", "rowwise", "interpair"])
+def test_nwgrad_alignments_are_the_paths_nwgrad_scored(mode, gap_mode, substitution_mode, fill):
     """The returned alignments are nwgrad's own paths: counting them gives exactly the
     per-pair counts nwgrad's gradient used at the final parameters, ties included
-    (simple mode has many), and their scores are nwgrad's scores."""
+    (simple mode has many), and their scores are nwgrad's scores. This holds for
+    every fill, so the paths must be traced with the fill the fit used."""
     from src.logit_link import logit_subgradient
     from src.nwgrad_backend import NwgradEngine
     rng, A, B, y = _data(31, n=16, length=14)
     res = discrimalign(A, B, y, aligner_mode=mode, gap_mode=gap_mode,
                        substitution_mode=substitution_mode, backend="nwgrad", max_iter=3,
-                       stepfunction=create_constant_step(0.01), alphabet="ACGT")
-    engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 2)
+                       stepfunction=create_constant_step(0.01), alphabet="ACGT",
+                       nwgrad_fill=fill)
+    engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 2, fill=fill)
     engine.set_params(res)
     scores = engine.scores()
     counts = engine.count_arrays()

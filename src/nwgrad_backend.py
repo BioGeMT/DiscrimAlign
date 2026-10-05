@@ -71,6 +71,7 @@ class NwgradEngine:
         self.alphabet = alphabet
         self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
                                                traceback='pointers')
+        self.fill = fill
         self.batch.fill = fill
         self._built = False
 
@@ -106,6 +107,7 @@ class NwgradEngine:
             seqs_b = self.seqlistB[start:start + chunk_size]
             batch = nwgrad.SeqPairBatchDouble(n_threads=self.batch.n_threads,
                                               traceback='pointers')
+            batch.fill = self.fill
             batch.add_many(seqs_a, seqs_b, self._nw_params, gap_model=self.gap_mode,
                            mode=self.mode, grad_mode='none')
             batch.alloc_dp()
