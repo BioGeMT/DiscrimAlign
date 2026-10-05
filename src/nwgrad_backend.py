@@ -5,15 +5,11 @@ iterations.
 """
 import numpy as np
 import nwgrad
+import nwgrad.logistic as nwgrad_logistic
 from Bio.Align import substitution_matrices
 
-try:  # the logistic link in C++, in nwgrad releases that have it
-    import nwgrad.logistic as nwgrad_logistic
-except ImportError:
-    nwgrad_logistic = None
-
-from .nwgrad_params import GAP_FIELDS, gap_counts, grad_to_raw, to_nwgrad
-from .optimization import CountArrays
+from .nwgrad_params import gap_counts, grad_to_raw, to_nwgrad
+from .optimization import CountArrays, EmptyLocalAlignment
 
 
 def baseline_parameters(aligner, gap_mode, alphabet):
@@ -66,7 +62,7 @@ class NwgradEngine:
     """
 
     def __init__(self, seqlistA, seqlistB, mode, gap_mode, substitution_mode,
-                 alphabet, num_threads):
+                 alphabet, num_threads, fill='striped'):
         self.seqlistA = list(seqlistA)
         self.seqlistB = list(seqlistB)
         self.mode = mode
@@ -75,6 +71,7 @@ class NwgradEngine:
         self.alphabet = alphabet
         self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
                                                traceback='pointers')
+        self.batch.fill = fill
         self._built = False
 
     def set_params(self, params, substitution_mode=None):
@@ -84,6 +81,7 @@ class NwgradEngine:
         """
         nw_params = to_nwgrad(params, self.gap_mode,
                               substitution_mode or self.substitution_mode, self.alphabet)
+        self._nw_params = nw_params
         if self._built:
             self.batch.set_params(nw_params)
         else:
@@ -92,13 +90,40 @@ class NwgradEngine:
                                 grad_mode='hard')
             self._built = True
 
+    def alignments(self, chunk_size=100_000):
+        """
+        Every pair's alignment at the parameters last set: a Bio.Align.Alignment
+        with .score, or EmptyLocalAlignment for a local pair with no
+        positive-scoring alignment. These are nwgrad's own paths, the ones the
+        scores and subgradients come from, so on ties they agree with them, which
+        a Biopython realignment need not. Recovering a path needs pair-owned DP
+        tables, so the pairs are aligned chunk_size at a time to bound memory.
+        """
+        from Bio.Align import Alignment
+        out = []
+        for start in range(0, len(self.seqlistA), chunk_size):
+            seqs_a = self.seqlistA[start:start + chunk_size]
+            seqs_b = self.seqlistB[start:start + chunk_size]
+            batch = nwgrad.SeqPairBatchDouble(n_threads=self.batch.n_threads,
+                                              traceback='pointers')
+            batch.add_many(seqs_a, seqs_b, self._nw_params, gap_model=self.gap_mode,
+                           mode=self.mode, grad_mode='none')
+            batch.alloc_dp()
+            batch.align_full()
+            for i, (seq_a, seq_b) in enumerate(zip(seqs_a, seqs_b)):
+                pair = batch[i]
+                coordinates = pair.coordinates()
+                if (coordinates[:, 0] == coordinates[:, -1]).all():
+                    out.append(EmptyLocalAlignment())
+                    continue
+                alignment = Alignment([seq_a, seq_b], coordinates)
+                alignment.score = pair.score
+                out.append(alignment)
+        return out
+
     def scores(self):
         self.batch.score_and_grad()
         return self.batch.scores()
-
-    @property
-    def has_logistic_step(self):
-        return nwgrad_logistic is not None
 
     def logistic_step(self, labels, alpha0):
         """
@@ -117,34 +142,12 @@ class NwgradEngine:
 
     def count_arrays(self):
         """
-        The same per-pair counts as raw_counts(), as CountArrays: from one
-        SeqPairBatch.grads() call where nwgrad has it, else pair by pair.
+        The same per-pair counts as raw_counts(), as CountArrays, from one
+        SeqPairBatch.grads() call.
         """
-        if hasattr(self.batch, 'grads') and len(self.batch):
-            return self._count_arrays_bulk()
-        return self._count_arrays_per_pair()
-
-    def _count_arrays_bulk(self):
         matrices, gaps = self.batch.grads()
         gap_opens, gap_extends = gap_counts(*gaps.T)
         return CountArrays(matrices, gap_opens, gap_extends, self.batch.alphabet)
-
-    def _count_arrays_per_pair(self):
-        n = len(self.batch)
-        substitutions = None
-        gap_opens = np.empty(n)
-        gap_extends = np.empty(n)
-        for i in range(n):
-            grad = self.batch[i].grad.to_dict()
-            if substitutions is None:
-                alphabet = grad['alphabet']
-                substitutions = np.empty((n, len(alphabet), len(alphabet)))
-            substitutions[i] = grad['matrix']
-            gap_opens[i], gap_extends[i] = gap_counts(*(grad[field] for field in GAP_FIELDS))
-        if substitutions is None:
-            alphabet = self.alphabet
-            substitutions = np.empty((0, len(alphabet), len(alphabet)))
-        return CountArrays(substitutions, gap_opens, gap_extends, alphabet)
 
     def raw_subgradient(self, logit_scores, labels, alpha):
         """

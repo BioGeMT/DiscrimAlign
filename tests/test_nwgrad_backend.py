@@ -112,16 +112,9 @@ def test_nwgrad_initial_estimate_is_fitted_on_nwgrad_counts(mode, gap_mode, subs
     assert res["alpha"] == pytest.approx(expected["alpha"], rel=1e-12)
 
 
-NWGRAD_HAS_GRADS = hasattr(nwgrad.SeqPairBatchDouble, "grads")
-
-
-@pytest.mark.parametrize("path", [
-    "count_arrays", "_count_arrays_per_pair",
-    pytest.param("_count_arrays_bulk", marks=pytest.mark.skipif(
-        not NWGRAD_HAS_GRADS, reason="nwgrad without SeqPairBatch.grads()"))])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
-def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode, path):
-    """count_arrays(), by either path, gives exactly the per-pair counts of raw_counts()."""
+def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode):
+    """count_arrays() gives exactly the per-pair counts of raw_counts()."""
     from src.nwgrad_backend import NwgradEngine
     from src.optimization import _count_arrays_from_raw
     rng, A, B, _ = _data(5, n=20)
@@ -132,7 +125,7 @@ def test_count_arrays_equal_raw_counts(mode, gap_mode, substitution_mode, path):
                                 (random_params(rng, gap_mode, substitution_mode), None)):
         engine.set_params(params, substitution_mode=params_mode)
         engine.scores()
-        counts = getattr(engine, path)()
+        counts = engine.count_arrays()
         expected = _count_arrays_from_raw(engine.raw_counts())
         assert counts.alphabet == expected.alphabet
         for field in ("substitutions", "gap_opens", "gap_extends"):
@@ -407,9 +400,9 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
     engine_init = nwgrad_backend.NwgradEngine.__init__
     align_pairs = module._align_pairs
 
-    def spy_engine(self, *args):
+    def spy_engine(self, *args, **kwargs):
         seen.append(args[-1])
-        engine_init(self, *args)
+        engine_init(self, *args, **kwargs)
 
     def spy_align(seqsA, seqsB, aligner, num_threads):
         seen.append(num_threads)
@@ -430,3 +423,30 @@ def test_automatic_thread_count(backend, explicit, monkeypatch):
     one = discrimalign(A, B, y, num_threads=1, **kwargs)
     for key in _param_keys("affine", "general") | set(TRAJECTORY_KEYS):
         np.testing.assert_array_equal(np.asarray(auto[key]), np.asarray(one[key]), err_msg=key)
+
+
+@pytest.mark.parametrize("mode", ["local", "global"])
+@pytest.mark.parametrize("gap_mode", ["affine", "linear"])
+@pytest.mark.parametrize("substitution_mode", ["general", "simple"])
+def test_nwgrad_alignments_are_the_paths_nwgrad_scored(mode, gap_mode, substitution_mode):
+    """The returned alignments are nwgrad's own paths: counting them gives exactly the
+    per-pair counts nwgrad's gradient used at the final parameters, ties included
+    (simple mode has many), and their scores are nwgrad's scores."""
+    from src.logit_link import logit_subgradient
+    from src.nwgrad_backend import NwgradEngine
+    rng, A, B, y = _data(31, n=16, length=14)
+    res = discrimalign(A, B, y, aligner_mode=mode, gap_mode=gap_mode,
+                       substitution_mode=substitution_mode, backend="nwgrad", max_iter=3,
+                       stepfunction=create_constant_step(0.01), alphabet="ACGT")
+    engine = NwgradEngine(A, B, mode, gap_mode, substitution_mode, "ACGT", 2)
+    engine.set_params(res)
+    scores = engine.scores()
+    counts = engine.count_arrays()
+    for i, aln in enumerate(res["alignments"]):
+        assert aln.score == scores[i]
+        c = logit_subgradient([aln], [0.0], [1], res["alpha"], "ACGT")
+        np.testing.assert_array_equal(np.asarray(c["Substitutions"]), counts.substitutions[i])
+        if gap_mode == "affine":
+            assert (c["Gap opens"], c["Gap extends"]) == (counts.gap_opens[i], counts.gap_extends[i])
+        else:   # the linear model reports gap columns only
+            assert c["Gap opens"] + c["Gap extends"] == counts.gap_opens[i] + counts.gap_extends[i]

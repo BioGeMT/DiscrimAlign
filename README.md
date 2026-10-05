@@ -19,7 +19,7 @@ pyproject.toml                Project environment managed by uv
 
 - Python `>=3.10`
 - `uv` for environment management
-- `nwgrad` 0.5.0 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
+- `nwgrad` 0.5.2 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
 - JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
 The repository uses a single project environment managed by `uv`. This environment includes the scientific Python dependencies, JupyterLab, an IPython kernel for notebooks, and `miRBench` for the miRNA case-study dataset interface.
@@ -123,6 +123,18 @@ The output CSV includes:
 
 By default, `--normalize auto` converts `U`/`T` to match the trained model alphabet. Use `--normalize none` only if you want to disable this behavior.
 
+If your second sequence column contains target/gene sequences before reverse-complementing, pass `--reverse-complement-b` so the second sequence is reverse-complemented before normalization and scoring:
+
+```bash
+uv run python -m src.infer \
+  --model manakov \
+  --input my_pairs.csv \
+  --output my_predictions.csv \
+  --seq-a-column noncodingRNA \
+  --seq-b-column gene \
+  --reverse-complement-b
+```
+
 ### 4. Use Your Own CSV Columns
 
 If your input columns have different names, pass them explicitly:
@@ -221,6 +233,8 @@ uv run python -m src.infer --model model.pkl --input examples/mirna_pairs.csv --
 `stepfunction` maps the iteration number to a step size; it defaults to `create_powerstep(1e-4)`. `src.optimization` provides `create_powerstep` and `create_constant_step`.
 
 `num_threads=0`, the default, chooses the thread count automatically: all logical cores with the nwgrad backend, and one thread with the Biopython backend, whose threads contend for Python's global interpreter lock and only slow it down. Any other value is used as given. For long sequences such as full-length proteins, the number of physical cores can be faster than all logical cores; pass it explicitly.
+
+`nwgrad_fill` selects nwgrad's vectorized DP fill: `"striped"` (default), `"rowwise"` or `"interpair"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. On short pairs such as miRNA-target sites the default is the slowest: on all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`, which aligns several pairs at once, one per vector lane. On long sequences such as proteins, keep the default.
 
 ### Intercept fit
 

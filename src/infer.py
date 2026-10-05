@@ -32,6 +32,11 @@ def main(argv=None):
         choices=["auto", "none"],
         help="Normalize U/T to match the trained model alphabet.",
     )
+    parser.add_argument(
+        "--reverse-complement-b",
+        action="store_true",
+        help="Reverse-complement the second sequence column before scoring.",
+    )
     args = parser.parse_args(argv)
 
     model_path = _resolve_model_path(args.model)
@@ -43,6 +48,7 @@ def main(argv=None):
         sequence_a_column=args.seq_a_column,
         sequence_b_column=args.seq_b_column,
         normalize=args.normalize,
+        reverse_complement_b=args.reverse_complement_b,
     )
     print(f"Loaded model from {model_path}")
     print(f"Wrote {len(rows)} prediction rows to {args.output}")

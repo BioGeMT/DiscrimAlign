@@ -4,6 +4,8 @@ import csv
 import pickle
 from pathlib import Path
 
+from Bio.Seq import Seq
+
 from .logit_link import logit_partial_scores
 from .optimization import get_first_alignment
 
@@ -42,6 +44,10 @@ def _normalize_sequence(sequence, alphabet, normalize):
     return sequence
 
 
+def _reverse_complement(sequence):
+    return str(Seq(sequence).reverse_complement())
+
+
 def _alignment_rows(alignment):
     target = str(alignment[0])
     query = str(alignment[1])
@@ -74,7 +80,14 @@ def summarize_alignment(alignment):
     }
 
 
-def predict_pairs(seqlistA, seqlistB, model, return_alignments=True, normalize="auto"):
+def predict_pairs(
+    seqlistA,
+    seqlistB,
+    model,
+    return_alignments=True,
+    normalize="auto",
+    reverse_complement_b=False,
+):
     """Score sequence pairs with a fitted DiscrimAlign model.
 
     Parameters
@@ -87,6 +100,8 @@ def predict_pairs(seqlistA, seqlistB, model, return_alignments=True, normalize="
         Include text and per-position alignment summaries in each row.
     normalize : {"auto", "none"}, default="auto"
         Convert U/T automatically when the fitted model alphabet requires it.
+    reverse_complement_b : bool, default=False
+        Reverse-complement each second sequence before normalization and scoring.
     """
     seqlistA = list(seqlistA)
     seqlistB = list(seqlistB)
@@ -97,8 +112,9 @@ def predict_pairs(seqlistA, seqlistB, model, return_alignments=True, normalize="
     alphabet = _model_alphabet(aligner)
     rows = []
     for index, (seqA, seqB) in enumerate(zip(seqlistA, seqlistB)):
+        transformed_seqB = _reverse_complement(seqB) if reverse_complement_b else seqB
         normalized_seqA = _normalize_sequence(seqA, alphabet, normalize)
-        normalized_seqB = _normalize_sequence(seqB, alphabet, normalize)
+        normalized_seqB = _normalize_sequence(transformed_seqB, alphabet, normalize)
         alignment = get_first_alignment(normalized_seqA, normalized_seqB, aligner)
         probability = float(logit_partial_scores([alignment.score], alpha)[0])
         row = {
@@ -140,6 +156,7 @@ def predict_csv(
     sequence_a_column="sequence_a",
     sequence_b_column="sequence_b",
     normalize="auto",
+    reverse_complement_b=False,
 ):
     """Run inference from a CSV file and write prediction rows to another CSV."""
     input_csv = Path(input_csv)
@@ -163,6 +180,7 @@ def predict_csv(
         [row[sequence_b_column] for row in input_rows],
         model,
         normalize=normalize,
+        reverse_complement_b=reverse_complement_b,
     )
     output_rows = []
     for input_row, prediction in zip(input_rows, predictions):

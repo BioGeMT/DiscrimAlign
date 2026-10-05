@@ -167,7 +167,9 @@ def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode, backend
     res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, initial_parameters=p0)
     realigned = align_all(A, B, res["aligner"])
     scores = np.array([a.score for a in res["alignments"]])
-    np.testing.assert_array_equal(scores, [a.score for a in realigned])
+    # nwgrad returns its own paths and scores, equal to Biopython's up to summation order.
+    tol = 0 if backend == "biopython" else 1e-12
+    np.testing.assert_allclose(scores, [a.score for a in realigned], rtol=tol, atol=tol)
     np.testing.assert_allclose(res["alignment_logit_scores"], expit(res["alpha"] + scores), rtol=1e-14)
     assert res["final_loglik"] == pytest.approx(logit_logL(res["alignment_logit_scores"], y), rel=1e-14)
     # The returned aligner carries the returned parameters.
@@ -567,17 +569,16 @@ def _record_alpha_fits(monkeypatch):
     monkeypatch.setattr(module, "fit_alpha", recording)
 
     backend = importlib.import_module("src.nwgrad_backend")
-    if backend.nwgrad_logistic is not None:
-        logistic = backend.nwgrad_logistic
+    logistic = backend.nwgrad_logistic
 
-        class RecordingLogistic:
-            @staticmethod
-            def step(batch, labels, alpha0):
-                st = logistic.step(batch, labels, alpha0)
-                calls.append((np.array(batch.scores()), np.array(labels, dtype=float), st.alpha))
-                return st
+    class RecordingLogistic:
+        @staticmethod
+        def step(batch, labels, alpha0):
+            st = logistic.step(batch, labels, alpha0)
+            calls.append((np.array(batch.scores()), np.array(labels, dtype=float), st.alpha))
+            return st
 
-        monkeypatch.setattr(backend, "nwgrad_logistic", RecordingLogistic)
+    monkeypatch.setattr(backend, "nwgrad_logistic", RecordingLogistic)
     return calls
 
 
@@ -633,16 +634,38 @@ def test_unknown_alpha_solver_is_rejected():
 
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substitution_mode, monkeypatch):
-    """nwgrad.logistic.step and the numpy path give the same fit."""
+    """nwgrad.logistic.step and the numpy path (the Biopython backend's) give the same fit."""
     backend = importlib.import_module("src.nwgrad_backend")
-    if backend.nwgrad_logistic is None:
-        pytest.skip("nwgrad without nwgrad.logistic")
     _, A, B, y = _data(24)
     kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
     native = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
-    monkeypatch.setattr(backend, "nwgrad_logistic", None)
+    # Without logistic_step, discrimalign() runs the numpy path on the nwgrad engine.
+    monkeypatch.delattr(backend.NwgradEngine, "logistic_step")
     python = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
     assert native["alpha"] == pytest.approx(python["alpha"], rel=1e-12, abs=1e-12)
     np.testing.assert_allclose(native["loglik_trajectory"], python["loglik_trajectory"], rtol=1e-12)
     _assert_params_equal(native, python, _param_keys(gap_mode, substitution_mode),
                          rtol=1e-12, atol=1e-12)
+
+
+@pytest.mark.parametrize("fill", ["rowwise", "interpair"])
+@pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
+def test_fill_gives_the_same_fit(mode, gap_mode, substitution_mode, fill):
+    """nwgrad_fill changes only the speed: the fit is bit-identical."""
+    _, A, B, y = _data(25)
+    kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
+    striped = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
+    other = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode,
+                      nwgrad_fill=fill, **kwargs)
+    assert other["alpha"] == striped["alpha"]
+    assert other["loglik_trajectory"] == striped["loglik_trajectory"]
+    _assert_params_equal(other, striped, _param_keys(gap_mode, substitution_mode),
+                         rtol=0, atol=0)
+
+
+def test_nwgrad_fill_is_validated():
+    _, A, B, y = _data(26)
+    with pytest.raises(ValueError, match="nwgrad_fill must be"):
+        discrimalign(A, B, y, max_iter=0, backend="nwgrad", nwgrad_fill="diagonal")
+    with pytest.raises(ValueError, match="nwgrad backend only"):
+        discrimalign(A, B, y, max_iter=0, backend="biopython", nwgrad_fill="rowwise")

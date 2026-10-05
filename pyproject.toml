@@ -11,7 +11,7 @@ dependencies = [
     "jupyterlab>=4.2.0",
     "matplotlib>=3.9.2",
     "mirbench",
-    "nwgrad>=0.5.1",
+    "nwgrad>=0.5.2",
     "numpy>=1.26.4",
     "pandas>=2.2.2",
     "scikit-learn>=1.4.2",
@@ -31,5 +31,5 @@ dev = [
 testpaths = ["tests"]
 pythonpath = ["."]
 markers = [
-    "slow: end-to-end runs on larger simulated data (deselect with -m 'not slow')",
+    "slow: end-to-end runs on larger data (deselect with -m 'not slow'); the miRBench runs also need DISCRIMALIGN_RUN_MIRBENCH=1",
 ]

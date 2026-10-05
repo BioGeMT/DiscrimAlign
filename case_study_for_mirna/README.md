@@ -179,3 +179,5 @@ uv run python -m src.infer --model hejret --input examples/mirna_pairs.csv --out
 ```
 
 The output CSV includes the original sequences, normalized sequences, alignment score, logistic probability, aligned sequences, alignment markers, and per-position operations. The default `--normalize auto` converts `U`/`T` as needed to match the trained model alphabet.
+
+If your input uses manuscript-style columns where `gene` is the target sequence before reverse-complementing, pass `--seq-a-column noncodingRNA --seq-b-column gene --reverse-complement-b` so inference matches the case-study preprocessing.

@@ -204,13 +204,15 @@ def discrimalign(seqlistA, seqlistB,
                  return_alignments=True,
                  verbose=False,
                  backend='nwgrad',
-                 alpha_solver='safeguarded_newton'):
+                 alpha_solver='safeguarded_newton',
+                 nwgrad_fill='striped'):
     """
     backend selects where alignment scores and subgradients come from:
     'nwgrad' (the default) or 'biopython' (PairwiseAligner). With 'nwgrad', the initial
     estimate is fitted on nwgrad's alignments of the baseline too, and a
     baseline_aligner must have uniform gap scores and no wildcard. The
-    returned aligner and alignments always use Biopython.
+    returned aligner is a Biopython PairwiseAligner, and the returned alignments
+    are Biopython Alignment objects; with 'nwgrad' they are nwgrad's own paths.
 
     num_threads=0 (the default) picks the thread count automatically: all
     logical cores with 'nwgrad', 1 with 'biopython', whose threads contend
@@ -221,6 +223,12 @@ def discrimalign(seqlistA, seqlistB,
     in logit_link; 'bfgs' is the previous scipy.optimize.minimize (BFGS) fit,
     which can stop far from the optimum when alpha moves a long way between
     iterations, e.g. with subgradient_scale=1 on large data.
+
+    nwgrad_fill selects nwgrad's vectorized DP fill: 'striped' (the default),
+    'rowwise' or 'interpair'. All three give the same scores, gradients and fit,
+    bit for bit. On short pairs such as miRNA-target sites, 'rowwise' is about 2x
+    faster than 'striped', and 'interpair' (several pairs per vector) faster
+    still.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -228,6 +236,11 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
+    if nwgrad_fill not in {'striped', 'rowwise', 'interpair'}:
+        raise ValueError("nwgrad_fill must be 'striped', 'rowwise' or 'interpair', "
+                         f"got {nwgrad_fill!r}")
+    if nwgrad_fill != 'striped' and backend != 'nwgrad':
+        raise ValueError("nwgrad_fill applies to the nwgrad backend only")
     if stepfunction is None:
         stepfunction = create_powerstep(1e-4)
     for seqlist, name in ((seqlistA, 'seqlistA'), (seqlistB, 'seqlistB')):
@@ -295,7 +308,7 @@ def discrimalign(seqlistA, seqlistB,
     if backend == 'nwgrad':
         from .nwgrad_backend import NwgradEngine, baseline_parameters
         engine = NwgradEngine(seqlistA, seqlistB, aligner.mode, gap_mode,
-                              substitution_mode, alphabet, num_threads)
+                              substitution_mode, alphabet, num_threads, fill=nwgrad_fill)
     else:
         engine = _BiopythonEngine(seqlistA, seqlistB, aligner, gap_mode,
                                   substitution_mode, alphabet, num_threads)
@@ -329,10 +342,10 @@ def discrimalign(seqlistA, seqlistB,
     if not np.isin(labels_float, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
     one_minus_labels = 1 - labels_float
-    # nwgrad releases with nwgrad.logistic do the logistic part of each
-    # iteration in C++ (the same alpha fit, same probabilities).
+    # The nwgrad engine does the logistic part of each iteration in C++ (the
+    # same alpha fit, same probabilities); the Biopython engine has no such step.
     use_logistic_step = (alpha_solver == 'safeguarded_newton'
-                         and getattr(engine, 'has_logistic_step', False))
+                         and hasattr(engine, 'logistic_step'))
 
     # Subgradient refinement
     loglik_trajectory = []
