@@ -5,6 +5,7 @@ and its subgradients
 
 import numpy as np
 from Bio.Align import substitution_matrices
+from scipy.optimize import minimize
 from scipy.special import expit
 
 
@@ -152,6 +153,34 @@ def _fit_alpha_unchecked(alignment_scores, labels, alpha0, tol=1e-12, max_newton
         else:
             hi = alpha
     raise RuntimeError('fit_alpha: did not converge')
+
+
+def logistic_step(engine, labels, alpha0, alpha_solver='safeguarded_newton'):
+    """
+    One iteration's logistic work on an engine whose parameters are set:
+    align (engine.scores()), the log-likelihood at alpha0, the alpha that
+    maximises the likelihood for these scores, and engine.raw_subgradient() at
+    that alpha. Returns (loglik_at_alpha0, alpha, subgradient).
+
+    labels: float array of 0s and 1s with both classes present, unchecked.
+    alpha_solver: 'safeguarded_newton' (fit_alpha) or 'bfgs' (scipy's minimize
+    on the log-likelihood).
+    """
+    alignment_scores = np.asarray(engine.scores(), dtype=float)
+    loglik = _logit_logL_unchecked(alignment_scores, alpha0, labels)
+    if alpha_solver == 'safeguarded_newton':
+        alpha = _fit_alpha_unchecked(alignment_scores, labels, alpha0,
+                                     logit_scores0=logit_partial_scores(alignment_scores, alpha0))
+    else:
+        def alpha_target(alpha):
+            return -_logit_logL_unchecked(alignment_scores, alpha[0], labels)
+
+        def alpha_fprime(alpha):
+            return -np.sum(labels - logit_partial_scores(alignment_scores, alpha))
+
+        alpha = minimize(alpha_target, alpha0, jac=alpha_fprime)['x'][0]
+    logit_scores = logit_partial_scores(alignment_scores, alpha)
+    return loglik, alpha, engine.raw_subgradient(logit_scores, labels, alpha)
 
 
 def logit_subgradient(alignment_list, logit_scores,

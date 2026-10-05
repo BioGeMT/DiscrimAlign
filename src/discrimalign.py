@@ -5,13 +5,12 @@ labeled pairs of biological sequences.
 from Bio.Align import PairwiseAligner, substitution_matrices
 import numpy as np
 from numpy import random as rd
-from scipy.optimize import minimize
 from copy import deepcopy
 from math import ceil
 import os
 from .optimization import (create_powerstep, get_initial_estimate,
                            get_initial_estimate_from_counts, get_first_alignment)
-from .logit_link import (_fit_alpha_unchecked, _logit_logL_unchecked, logit_partial_scores,
+from .logit_link import (_logit_logL_unchecked, logistic_step, logit_partial_scores,
                          logit_subgradient)
 
 
@@ -134,59 +133,9 @@ class _BiopythonEngine:
     def raw_subgradient(self, logit_scores, labels, alpha):
         return logit_subgradient(self.alignments, logit_scores, labels, alpha, self.alphabet)
 
-
-def _python_logistic_step(engine, updated_parameters, labels_float,
-                          alpha_solver, loglik_trajectory, verbose):
-    """
-    Align, then one iteration's logistic work in numpy: the log-likelihood at
-    the current alpha (appended to loglik_trajectory), the alpha fit, and the
-    raw subgradient at the new alpha. Returns (new_alpha, subgradient).
-    """
-    alignment_scores = np.asarray(engine.scores(), dtype=float)
-    logit_scores = logit_partial_scores(alignment_scores,
-                                        updated_parameters['alpha'])
-    new_logL = _logit_logL_unchecked(alignment_scores, updated_parameters['alpha'],
-                                     labels_float)
-    loglik_trajectory.append(new_logL)
-    if verbose:
-        print("Current alpha:", updated_parameters['alpha'])
-        print('Current logL:', new_logL)
-##    EL = 0
-##    VL = 0
-##    for ls in logit_scores:
-##        if 1e-30 < ls < 1-1e-30:
-##            EL += ls*np.log(ls) + (1-ls)*np.log(1-ls)
-##            VL += ls*(1-ls)*(np.log(ls)**2 + np.log(1-ls)**2)
-##    SDL = np.sqrt(VL)
-##    loglik_expectation.append(EL)
-##    loglik_sd.append(SDL)
-
-    # Optimize the logistic intercept (alpha)
-    if alpha_solver == 'safeguarded_newton':
-        new_alpha = _fit_alpha_unchecked(alignment_scores, labels_float,
-                                         updated_parameters['alpha'],
-                                         logit_scores0=logit_scores)
-    else:
-        def alpha_target(alpha):
-            return -_logit_logL_unchecked(alignment_scores, alpha[0], labels_float)
-
-        def alpha_fprime(alpha):
-            logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return -np.sum(labels_float - logit_scores)
-
-        new_alpha = minimize(alpha_target,
-                             updated_parameters['alpha'],
-                             jac=alpha_fprime)['x'][0]
-
-    logit_scores = logit_partial_scores(alignment_scores, new_alpha)
-    if verbose:
-        new_logL = _logit_logL_unchecked(alignment_scores, new_alpha, labels_float)
-        print("Updated alpha:", new_alpha)
-        print('Updated logL:', new_logL)
-
-    # The subgradient at the new alpha
-    subgradient = engine.raw_subgradient(logit_scores, labels_float, new_alpha)
-    return new_alpha, subgradient
+    def logistic_step(self, labels, alpha0, alpha_solver):
+        """Align, then one iteration's logistic work in numpy; see logit_link.logistic_step."""
+        return logistic_step(self, labels, alpha0, alpha_solver)
 
 
 def discrimalign(seqlistA, seqlistB,
@@ -346,11 +295,6 @@ def discrimalign(seqlistA, seqlistB,
     _clip_gap_scores(updated_parameters, gap_mode)
     _configure_aligner(aligner, updated_parameters, gap_mode, substitution_mode)
 
-    # The nwgrad engine does the logistic part of each iteration in C++ (the
-    # same alpha fit, same probabilities); the Biopython engine has no such step.
-    use_logistic_step = (alpha_solver == 'safeguarded_newton'
-                         and hasattr(engine, 'logistic_step'))
-
     # Subgradient refinement
     loglik_trajectory = []
     subgradient_l2_trajectory = []
@@ -359,23 +303,17 @@ def discrimalign(seqlistA, seqlistB,
     for iternb in range(max_iter):
         if verbose:
             print('Start of iteration', iternb)
-        # Realign with the new parameters
+        # Realign with the new parameters, then the log-likelihood at the
+        # current alpha, the alpha fit and the subgradient at the new alpha.
         engine.set_params(updated_parameters)
-        if use_logistic_step:
-            # Alignment, log-likelihood, alpha fit and subgradient in nwgrad.
-            new_logL, new_alpha, subgradient = engine.logistic_step(
-                labels_float, updated_parameters['alpha'])
-            loglik_trajectory.append(new_logL)
-            if verbose:
-                print("Current alpha:", updated_parameters['alpha'])
-                print('Current logL:', new_logL)
-                print("Updated alpha:", new_alpha)
-            updated_parameters['alpha'] = new_alpha
-        else:
-            new_alpha, subgradient = _python_logistic_step(
-                engine, updated_parameters, labels_float,
-                alpha_solver, loglik_trajectory, verbose)
-            updated_parameters['alpha'] = new_alpha
+        new_logL, new_alpha, subgradient = engine.logistic_step(
+            labels_float, updated_parameters['alpha'], alpha_solver)
+        loglik_trajectory.append(new_logL)
+        if verbose:
+            print("Current alpha:", updated_parameters['alpha'])
+            print('Current logL:', new_logL)
+            print("Updated alpha:", new_alpha)
+        updated_parameters['alpha'] = new_alpha
         if subgradient_scale != 1.0:
             subgradient['Gap opens'] *= subgradient_scale
             subgradient['Gap extends'] *= subgradient_scale

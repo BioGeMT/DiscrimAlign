@@ -8,7 +8,7 @@ import nwgrad
 import nwgrad.logistic as nwgrad_logistic
 from Bio.Align import substitution_matrices
 
-from .logit_link import _logit_logL_unchecked
+from .logit_link import _logit_logL_unchecked, logistic_step
 from .nwgrad_params import gap_counts, grad_to_raw, to_nwgrad
 from .optimization import CountArrays, EmptyLocalAlignment
 
@@ -128,16 +128,19 @@ class NwgradEngine:
         self.batch.score_and_grad()
         return self.batch.scores()
 
-    def logistic_step(self, labels, alpha0):
+    def logistic_step(self, labels, alpha0, alpha_solver):
         """
         Align, then one iteration's logistic work: the log-likelihood at
-        alpha0, the fitted alpha (as fit_alpha()), and the raw subgradient at
-        that alpha, in logit_subgradient's format. The alpha fit and the
-        subgradient run in nwgrad (C++, parallel). The log-likelihood comes from
-        logit_logL's formula on the cached scores instead of nwgrad's, which
-        clips probabilities.
+        alpha0, the fitted alpha, and the raw subgradient at that alpha, in
+        logit_subgradient's format; see logit_link.logistic_step. With
+        alpha_solver='safeguarded_newton', the alpha fit (as fit_alpha()) and
+        the subgradient run in nwgrad (C++, parallel), and the log-likelihood
+        comes from logit_logL's formula on the cached scores instead of
+        nwgrad's, which clips probabilities. Other solvers run in numpy.
         labels: float64 array of 0s and 1s.
         """
+        if alpha_solver != 'safeguarded_newton':
+            return logistic_step(self, labels, alpha0, alpha_solver)
         self.batch.score_and_grad()
         step = nwgrad_logistic.step(self.batch, labels, alpha0)
         loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels)

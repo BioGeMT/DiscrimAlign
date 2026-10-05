@@ -583,7 +583,7 @@ def _record_alpha_fits(monkeypatch):
     Record (scores, labels, alpha) for every alpha fit: discrimalign's Python
     _fit_alpha_unchecked, and nwgrad.logistic.step where the nwgrad backend uses it.
     """
-    module = sys.modules["src.discrimalign"]
+    module = sys.modules["src.logit_link"]
     calls = []
     original = module._fit_alpha_unchecked
 
@@ -665,8 +665,10 @@ def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substituti
     _, A, B, y = _data(24)
     kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
     native = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
-    # Without logistic_step, discrimalign() runs the numpy path on the nwgrad engine.
-    monkeypatch.delattr(backend.NwgradEngine, "logistic_step")
+    # The numpy path (logit_link.logistic_step) on the nwgrad engine.
+    monkeypatch.setattr(backend.NwgradEngine, "logistic_step",
+                        lambda self, labels, alpha0, alpha_solver:
+                        backend.logistic_step(self, labels, alpha0, alpha_solver))
     python = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
     assert native["alpha"] == pytest.approx(python["alpha"], rel=1e-12, abs=1e-12)
     np.testing.assert_allclose(native["loglik_trajectory"], python["loglik_trajectory"], rtol=1e-12)
