@@ -8,6 +8,7 @@ import nwgrad
 import nwgrad.logistic as nwgrad_logistic
 from Bio.Align import substitution_matrices
 
+from .logit_link import _logit_logL_unchecked
 from .nwgrad_params import gap_counts, grad_to_raw, to_nwgrad
 from .optimization import CountArrays, EmptyLocalAlignment
 
@@ -129,14 +130,18 @@ class NwgradEngine:
 
     def logistic_step(self, labels, alpha0):
         """
-        Align, then one iteration's logistic work in nwgrad (C++, parallel):
-        the log-likelihood at alpha0, the fitted alpha (as fit_alpha()), and
-        the raw subgradient at that alpha, in logit_subgradient's format.
+        Align, then one iteration's logistic work: the log-likelihood at
+        alpha0, the fitted alpha (as fit_alpha()), and the raw subgradient at
+        that alpha, in logit_subgradient's format. The alpha fit and the
+        subgradient run in nwgrad (C++, parallel). The log-likelihood comes from
+        logit_logL's formula on the cached scores instead of nwgrad's, which
+        clips probabilities.
         labels: float64 array of 0s and 1s.
         """
         self.batch.score_and_grad()
         step = nwgrad_logistic.step(self.batch, labels, alpha0)
-        return step.loglik_at_alpha0, step.alpha, grad_to_raw(step.grad)
+        loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels)
+        return loglik, step.alpha, grad_to_raw(step.grad)
 
     def raw_counts(self):
         """Per-pair counts in logit_subgradient's format, for the scores just computed."""

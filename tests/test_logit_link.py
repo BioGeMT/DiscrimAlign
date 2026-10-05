@@ -2,6 +2,7 @@
 import numpy as np
 import pytest
 from Bio.Align import PairwiseAligner
+from scipy.special import expit
 
 from src.logit_link import (d2lda2, dlda, fit_alpha, logit_logL, logit_partial_scores,
                             logit_subgradient)
@@ -53,55 +54,83 @@ def test_partial_scores_empty_input():
 # --- logit_logL -------------------------------------------------------------
 
 def test_logL_matches_bernoulli_formula():
-    p = np.array([0.1, 0.4, 0.8, 0.95])
+    scores = np.array([-2.2, -0.4, 1.4, 2.9])
+    alpha = 0.1
     y = np.array([0, 1, 1, 0])
+    p = expit(alpha + scores)
     expected = np.sum(y * np.log(p) + (1 - y) * np.log(1 - p))
-    assert logit_logL(p, y) == pytest.approx(expected, rel=1e-14)
+    assert logit_logL(scores, alpha, y) == pytest.approx(expected, rel=1e-14)
 
 
 def test_logL_returns_python_float():
-    assert type(logit_logL([0.3], [1])) is float
+    assert type(logit_logL([0.3], 0.0, [1])) is float
 
 
 def test_logL_is_nonpositive():
     rng = np.random.default_rng(0)
-    p = rng.uniform(0.01, 0.99, size=50)
+    scores = rng.normal(scale=4, size=50)
     y = rng.integers(0, 2, size=50)
-    assert logit_logL(p, y) <= 0.0
+    assert logit_logL(scores, 0.5, y) <= 0.0
 
 
 def test_logL_perfect_prediction_is_near_zero():
-    assert logit_logL([1.0, 0.0], [1, 0]) == pytest.approx(0.0, abs=1e-12)
+    assert logit_logL([50.0, -50.0], 0.0, [1, 0]) == pytest.approx(0.0, abs=1e-12)
 
 
-def test_logL_clips_certain_wrong_predictions_to_finite_value():
-    value = logit_logL([0.0, 1.0], [1, 0])
-    assert np.isfinite(value)
-    assert value < -60  # 2 * log(eps) is about -72
+def test_logL_is_exact_on_certain_wrong_predictions():
+    # Probabilities would round to 0 and 1 here; the logits keep the exact value.
+    assert logit_logL([-800.0, 800.0], 0.0, [1, 0]) == -1600.0
+
+
+def test_logL_keeps_precision_on_confident_right_predictions():
+    # log(1 - p) with p = expit(-40) would round to 0; the exact value is about -4e-18.
+    assert logit_logL([40.0], 0.0, [1]) == pytest.approx(-np.log1p(np.exp(-40.0)), rel=1e-14)
+
+
+@pytest.mark.parametrize("scores,alpha", [([0.0, np.nan], 0.0), ([0.0, np.inf], 0.0),
+                                          ([0.0, 1.0], -np.inf), ([0.0, 1.0], np.nan)])
+def test_logL_raises_on_non_finite_input(scores, alpha):
+    with pytest.raises(FloatingPointError):
+        logit_logL(scores, alpha, [0, 1])
 
 
 def test_logL_accepts_lists():
-    assert logit_logL([0.25, 0.75], [0, 1]) == pytest.approx(2 * np.log(0.75))
+    assert logit_logL([-1.0, 1.0], 0.0, [0, 1]) == pytest.approx(2 * np.log(expit(1.0)))
 
 
 def test_logL_accepts_boolean_labels():
-    assert logit_logL([0.25, 0.75], np.array([False, True])) == pytest.approx(2 * np.log(0.75))
+    assert logit_logL([-1.0, 1.0], 0.0, np.array([False, True])) == pytest.approx(
+        2 * np.log(expit(1.0)))
+
+
+def test_logL_adds_alpha_to_every_score():
+    scores = np.array([-1.5, 0.2, 3.0])
+    y = [0, 1, 1]
+    assert logit_logL(scores, 0.7, y) == logit_logL(scores + 0.7, 0.0, y)
 
 
 @pytest.mark.parametrize("labels", [[0, 2], [-1, 1], [0.5, 1]])
 def test_logL_rejects_non_binary_labels(labels):
     with pytest.raises(ValueError):
-        logit_logL([0.3, 0.6], labels)
+        logit_logL([0.3, 0.6], 0.0, labels)
 
 
 def test_logL_empty_is_zero():
-    assert logit_logL([], []) == 0.0
+    assert logit_logL([], 0.0, []) == 0.0
+
+
+def test_logL_unchecked_is_bit_identical_to_logL():
+    from src.logit_link import _logit_logL_unchecked
+    rng = np.random.default_rng(4)
+    scores = rng.normal(scale=20, size=1000)
+    labels = rng.integers(0, 2, 1000)
+    assert _logit_logL_unchecked(scores, -0.3, labels.astype(float)) == logit_logL(scores, -0.3, labels)
 
 
 # --- dlda and d2lda2 --------------------------------------------------------
 
 def _logL_of_alpha(alpha, scores, labels):
-    return logit_logL(logit_partial_scores(scores, alpha), labels)
+    return logit_logL(scores, alpha, labels)
 
 
 @pytest.mark.parametrize("seed", range(5))
@@ -187,20 +216,6 @@ def test_fit_alpha_given_starting_probabilities_is_bit_identical(start):
     expected = fit_alpha(scores, labels, start)
     given = fit_alpha(scores, labels, start, logit_scores0=logit_partial_scores(scores, start))
     assert given == expected
-
-
-def test_logL_shared_arithmetic_is_bit_identical_to_the_formula():
-    from src.logit_link import _logit_logL_unchecked
-    rng = np.random.default_rng(4)
-    p = rng.random(1000)
-    p[:5] = [0.0, 1.0, 1e-300, 1 - 1e-17, 0.5]
-    labels = rng.integers(0, 2, 1000)
-    eps = np.finfo(float).eps
-    clipped = np.clip(p, eps, 1.0 - eps)
-    formula = float(np.sum(labels * np.log(clipped) + (1 - labels) * np.log1p(-clipped)))
-    as_float = labels.astype(float)
-    assert logit_logL(p, labels) == formula
-    assert _logit_logL_unchecked(p, as_float, 1 - as_float) == formula
 
 
 @pytest.mark.parametrize("labels", [[1, 1, 1], [0, 0, 0]])

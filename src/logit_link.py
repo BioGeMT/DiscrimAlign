@@ -17,35 +17,36 @@ def logit_partial_scores(alignment_scores, alpha):
     return expit(alpha + alignment_scores)
 
 
-def logit_logL(logit_scores, labels):
+def logit_logL(alignment_scores, alpha, labels):
     """
-    Calculate the log likelihood in the logistic model.
-    logit_scores are a list of values of the logistic function
-    of the alignment score, calculated with logit_partial_scores.
-    labels are a 1D numpy array with values 0 or 1.
+    Calculate the log likelihood in the logistic model:
+    sum_i y_i z_i - log(1 + e^{z_i}), with z_i = alpha + alignment_scores[i].
+    Computed from the logits rather than from the probabilities, so it needs
+    no clipping and loses no precision on confident predictions, and
+    log(1 + e^z) is evaluated without overflow.
+    labels are a 1D array with values 0 or 1.
+    Raises FloatingPointError if the result is not finite.
     """
-    logit_scores = np.asarray(logit_scores, dtype=float)
     labels = np.asarray(labels)
     if not np.isin(labels, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
-    return _logit_logL_unchecked(logit_scores, labels, 1 - labels)
+    return _logit_logL_unchecked(np.asarray(alignment_scores, dtype=float), alpha,
+                                 labels.astype(float))
 
 
-def _logit_logL_unchecked(logit_scores, labels, one_minus_labels):
+def _logit_logL_unchecked(alignment_scores, alpha, labels):
     """
-    logit_logL() for a float array of logit scores and labels already known to
-    be 0 or 1, given 1 - labels too: the same arithmetic in the same order,
-    with fewer temporary arrays. For loops that evaluate it on the same labels
+    logit_logL() for a float array of alignment scores and float labels
+    already known to be 0 or 1. For loops that evaluate it on the same labels
     many times.
     """
-    eps = np.finfo(float).eps
-    clipped = np.clip(logit_scores, eps, 1.0 - eps)
-    terms = np.log(clipped)
-    terms *= labels
-    other = np.log1p(np.negative(clipped, out=clipped))
-    other *= one_minus_labels
-    terms += other
-    return float(np.sum(terms))
+    z = alignment_scores + alpha
+    with np.errstate(invalid='ignore'):   # a non-finite result raises below
+        logL = float(np.dot(labels, z) - np.sum(np.logaddexp(0.0, z)))
+    if not np.isfinite(logL):
+        raise FloatingPointError(f'Log-likelihood is {logL} at alpha={alpha}: '
+                                 'alignment scores or alpha are not finite')
+    return logL
 
 
 def dlda(logit_scores, labels):
@@ -77,8 +78,7 @@ def fit_alpha(alignment_scores, labels, alpha0, tol=1e-12, max_newton=8, maxiter
     alpha0 is the previous iteration's alpha. Otherwise the root is bracketed
     and found by Newton steps inside the bracket, with bisection whenever a
     Newton step would leave it or converge too slowly (Numerical Recipes'
-    rtsafe). The log-likelihood itself is never evaluated: logit_logL clips
-    probabilities, which makes line searches on it unreliable.
+    rtsafe). The log-likelihood itself is never evaluated.
 
     logit_scores0, if given, must be logit_partial_scores(alignment_scores,
     alpha0); a caller that already has them saves one pass over the data.

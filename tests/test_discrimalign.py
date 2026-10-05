@@ -171,7 +171,7 @@ def test_final_outputs_are_consistent(mode, gap_mode, substitution_mode, backend
     tol = 0 if backend == "biopython" else 1e-12
     np.testing.assert_allclose(scores, [a.score for a in realigned], rtol=tol, atol=tol)
     np.testing.assert_allclose(res["alignment_logit_scores"], expit(res["alpha"] + scores), rtol=1e-14)
-    assert res["final_loglik"] == pytest.approx(logit_logL(res["alignment_logit_scores"], y), rel=1e-14)
+    assert res["final_loglik"] == pytest.approx(logit_logL(scores, res["alpha"], y), rel=1e-14)
     # The returned aligner carries the returned parameters.
     reference = make_aligner(mode, {k: res[k] for k in _param_keys(gap_mode, substitution_mode)})
     assert [a.score for a in realigned] == [a.score for a in align_all(A, B, reference)]
@@ -198,7 +198,7 @@ def test_zero_iterations_return_initial_parameters(mode, gap_mode, substitution_
     assert res["alpha"] == p0["alpha"]
     assert res["subgradient_l2_trajectory"] == []
     scores = np.array([a.score for a in align_all(A, B, make_aligner(mode, p0))])
-    assert res["final_loglik"] == pytest.approx(logit_logL(expit(p0["alpha"] + scores), y))
+    assert res["final_loglik"] == pytest.approx(logit_logL(scores, p0["alpha"], y))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -243,7 +243,7 @@ def test_one_iteration_is_one_subgradient_step(mode, gap_mode, substitution_mode
 
     norm = np.sqrt(sum(np.sum(np.asarray(g) ** 2) for g in grad.values()))
     assert res["subgradient_l2_trajectory"][0] == pytest.approx(norm, rel=1e-12)
-    assert res["loglik_trajectory"][0] == pytest.approx(logit_logL(expit(p0["alpha"] + scores), y))
+    assert res["loglik_trajectory"][0] == pytest.approx(logit_logL(scores, p0["alpha"], y))
 
 
 @pytest.mark.parametrize("backend", BACKENDS)
@@ -260,7 +260,7 @@ def test_small_step_increases_likelihood_at_fixed_alpha(mode, backend):
 
     def loglik(p):
         s = np.array([a.score for a in align_all(A, B, make_aligner(mode, p))])
-        return logit_logL(expit(p["alpha"] + s), y)
+        return logit_logL(s, p["alpha"], y)
 
     assert loglik(p1) > loglik(p0_fitted)
 

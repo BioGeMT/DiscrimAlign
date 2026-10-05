@@ -117,8 +117,7 @@ def loglik_at(seqsA, seqsB, labels, mode, params):
     Log-likelihood at params, with alpha held fixed at params['alpha'].
 
     Computed from the logits as sum(y*z - log(1 + e^z)), independently of
-    logit_logL, and without the cancellation in 1 - expit(z) that makes
-    logit_logL too noisy for finite differences on confident predictions.
+    logit_logL.
     """
     z = params["alpha"] + scores_at(seqsA, seqsB, mode, params)
     labels = np.asarray(labels, dtype=float)

@@ -135,7 +135,7 @@ class _BiopythonEngine:
         return logit_subgradient(self.alignments, logit_scores, labels, alpha, self.alphabet)
 
 
-def _python_logistic_step(engine, updated_parameters, labels, labels_float, one_minus_labels,
+def _python_logistic_step(engine, updated_parameters, labels_float,
                           alpha_solver, loglik_trajectory, verbose):
     """
     Align, then one iteration's logistic work in numpy: the log-likelihood at
@@ -145,7 +145,8 @@ def _python_logistic_step(engine, updated_parameters, labels, labels_float, one_
     alignment_scores = np.asarray(engine.scores(), dtype=float)
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
-    new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
+    new_logL = _logit_logL_unchecked(alignment_scores, updated_parameters['alpha'],
+                                     labels_float)
     loglik_trajectory.append(new_logL)
     if verbose:
         print("Current alpha:", updated_parameters['alpha'])
@@ -166,12 +167,11 @@ def _python_logistic_step(engine, updated_parameters, labels, labels_float, one_
                               logit_scores0=logit_scores)
     else:
         def alpha_target(alpha):
-            logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return -logit_logL(logit_scores, labels)
+            return -_logit_logL_unchecked(alignment_scores, alpha[0], labels_float)
 
         def alpha_fprime(alpha):
             logit_scores = logit_partial_scores(alignment_scores, alpha)
-            return -np.sum(labels - logit_scores)
+            return -np.sum(labels_float - logit_scores)
 
         new_alpha = minimize(alpha_target,
                              updated_parameters['alpha'],
@@ -179,7 +179,7 @@ def _python_logistic_step(engine, updated_parameters, labels, labels_float, one_
 
     logit_scores = logit_partial_scores(alignment_scores, new_alpha)
     if verbose:
-        new_logL = _logit_logL_unchecked(logit_scores, labels_float, one_minus_labels)
+        new_logL = _logit_logL_unchecked(alignment_scores, new_alpha, labels_float)
         print("Updated alpha:", new_alpha)
         print('Updated logL:', new_logL)
 
@@ -341,7 +341,6 @@ def discrimalign(seqlistA, seqlistB,
     labels_float = np.asarray(labels, dtype=float)
     if not np.isin(labels_float, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
-    one_minus_labels = 1 - labels_float
     # The nwgrad engine does the logistic part of each iteration in C++ (the
     # same alpha fit, same probabilities); the Biopython engine has no such step.
     use_logistic_step = (alpha_solver == 'safeguarded_newton'
@@ -369,7 +368,7 @@ def discrimalign(seqlistA, seqlistB,
             updated_parameters['alpha'] = new_alpha
         else:
             new_alpha, subgradient = _python_logistic_step(
-                engine, updated_parameters, labels, labels_float, one_minus_labels,
+                engine, updated_parameters, labels_float,
                 alpha_solver, loglik_trajectory, verbose)
             updated_parameters['alpha'] = new_alpha
         if subgradient_scale != 1.0:
@@ -463,7 +462,7 @@ def discrimalign(seqlistA, seqlistB,
         alnlist = engine.alignments
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
-    new_logL = logit_logL(logit_scores, labels)
+    new_logL = logit_logL(alignment_scores, updated_parameters['alpha'], labels)
 ##    EL = 0
 ##    VL = 0
 ##    for ls in logit_scores:

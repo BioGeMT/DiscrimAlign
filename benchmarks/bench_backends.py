@@ -164,7 +164,7 @@ def make_aligner(mode, params):
 # --- timing -------------------------------------------------------------------
 
 def fit_alpha(scores, labels, alpha0):
-    target = lambda a: -logit_logL(logit_partial_scores(scores, a), labels)
+    target = lambda a: -logit_logL(scores, a[0], labels)
     fprime = lambda a: -np.sum(labels - logit_partial_scores(scores, a))
     return minimize(target, alpha0, jac=fprime)["x"][0]
 
@@ -177,7 +177,7 @@ def time_iterations(engine, params, labels, reps):
         engine.set_params(params)
         scores = engine.scores()
         t1 = time.perf_counter()
-        logit_logL(logit_partial_scores(scores, params["alpha"]), labels)
+        logit_logL(scores, params["alpha"], labels)
         t2 = time.perf_counter()
         alpha = fit_alpha(scores, labels, params["alpha"])
         t3 = time.perf_counter()

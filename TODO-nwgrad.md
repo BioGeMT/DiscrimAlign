@@ -19,10 +19,6 @@ they become relevant.
   simple-mode initial estimators in `src/optimization.py`. They will stop
   working; the replacement is `C=np.inf`. It is deprecated, with a warning,
   since 1.8.
-- **`logit_logL` precision** (`src/logit_link.py`): it computes `log(p)` and
-  `log1p(-p)` from `p = expit(z)`, which loses precision on confident
-  predictions, and clips each pair's loss at about 36. A stable form computes
-  `sum(y*z - logaddexp(0, z))` from the logits.
 - **`src.discrimalign` is shadowed:** `src/__init__.py` imports the function
   under the module's name, so `import src.discrimalign` binds the function.
   Use `sys.modules["src.discrimalign"]` to reach the module.
