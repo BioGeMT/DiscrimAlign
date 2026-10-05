@@ -194,7 +194,7 @@ print(result["final_loglik"])
 print(result["alpha"])
 ```
 
-The returned object contains the fitted aligner, learned alignment parameters, intercept, final log-likelihood, and optimization trajectories.
+The returned object contains the fitted aligner, learned alignment parameters, intercept, alphabet, final log-likelihood, and optimization trajectories.
 If `stepfunction` is omitted, `discrimalign` uses a conservative default power step with scale `1e-4`.
 
 For inference on new sequence pairs, use `predict_pairs` with the fitted result:
@@ -269,7 +269,11 @@ Compared with earlier versions of DiscrimAlign:
 - In `symmetric` and `general` substitution mode with linear gaps, the initial estimate fits one coefficient on the number of gap columns. It previously added the gap-open and gap-extend coefficients of an affine fit.
 - Empty sequences raise a `ValueError` before any alignment work.
 - The default backend is nwgrad, and `num_threads` defaults to automatic.
-- The intercept α is fitted exactly by a safeguarded Newton method (`alpha_solver="safeguarded_newton"`); the previous BFGS fit is available as `alpha_solver="bfgs"`. With labels of only one class, fitting α now raises a `ValueError`, since the likelihood then has no finite maximum.
+- The intercept α is fitted exactly by a safeguarded Newton method (`alpha_solver="safeguarded_newton"`); the previous BFGS fit is available as `alpha_solver="bfgs"`.
+- Labels are checked once, before any alignment work: labels other than 0 and 1, or labels of only one class, raise a `ValueError`, since with one class the likelihood has no finite maximum. This also applies with `initial_parameters`.
+- The log-likelihood is computed from the logits, as Σ y·z − Σ log(1 + e^z) with z = α + score, without clipping probabilities. `loglik_trajectory` and `final_loglik` therefore differ from earlier versions on confident predictions, where the clipping capped each pair's loss at about 36. A non-finite score or α raises a `FloatingPointError`.
+- `logit_logL` in `src.logit_link` takes `(alignment_scores, alpha, labels)` instead of `(logit_scores, labels)`; calls in the old form raise a `TypeError`.
+- The results contain `alphabet`: the alphabet of the fit, whether given, taken from a warm start, or inferred from the sequences.
 
 ## Running tests
 
