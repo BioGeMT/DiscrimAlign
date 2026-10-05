@@ -444,11 +444,12 @@ def discrimalign(seqlistA, seqlistB,
     # Realign with the new parameters
     engine.set_params(updated_parameters)
     alignment_scores = engine.scores()
-    if backend == 'nwgrad':
-        alnlist = (_align_pairs(seqlistA, seqlistB, aligner, num_threads)
-                   if return_alignments else None)
-    else:
-        alnlist = engine.alignments
+    if return_alignments:
+        if backend == 'nwgrad':
+            alnlist = (_align_pairs(seqlistA, seqlistB, aligner, num_threads)
+                       if return_alignments else None)
+        else:
+            alnlist = engine.alignments
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
     new_logL = logit_logL(logit_scores, labels)
