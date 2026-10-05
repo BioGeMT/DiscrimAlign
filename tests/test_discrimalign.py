@@ -165,13 +165,28 @@ def test_non_binary_labels_raise_before_any_work(backend, monkeypatch):
 # --- result structure -------------------------------------------------------
 
 @pytest.mark.parametrize("backend", BACKENDS)
+def test_inferred_alphabet_is_returned(backend):
+    _, A, B, y = _data()
+    res = _run_on(backend, A, B, y, "local", "affine", "simple", max_iter=1)
+    assert res["alphabet"] == "".join(sorted(set("".join(A) + "".join(B))))
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_given_alphabet_is_returned(backend):
+    _, A, B, y = _data()
+    res = _run_on(backend, A, B, y, "local", "affine", "general", max_iter=1, alphabet="TGCA")
+    assert res["alphabet"] == "TGCA"
+    assert "".join(res["substitution_matrix"].alphabet) == "TGCA"
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_result_structure(mode, gap_mode, substitution_mode, backend):
     _, A, B, y = _data()
     res = _run_on(backend, A, B, y, mode, gap_mode, substitution_mode, max_iter=3)
     expected = _param_keys(gap_mode, substitution_mode) | {
         "loglik_trajectory", "subgradient_l2_trajectory", "final_loglik",
-        "aligner", "alignments", "alignment_logit_scores", "alpha"}
+        "aligner", "alignments", "alignment_logit_scores", "alpha", "alphabet"}
     assert set(res) == expected
     assert len(res["loglik_trajectory"]) == 4
     assert len(res["subgradient_l2_trajectory"]) == 3

@@ -4,7 +4,7 @@ import pytest
 from Bio.Align import PairwiseAligner, substitution_matrices
 
 from src.discrimalign import (_align_pair_chunk, _align_pairs, _matrix_alphabet,
-                              _pair_chunks, _warm_start_alphabet)
+                              _pair_chunks, _resolve_alphabet, _warm_start_alphabet)
 from src.optimization import EmptyLocalAlignment
 from tests.helpers import make_aligner, make_pairs, random_params
 
@@ -115,3 +115,21 @@ def test_warm_start_alphabet_none_for_simple_scoring():
     aligner.match_score = 2
     assert _warm_start_alphabet(aligner, {"match_score": 2.0}) is None
     assert _warm_start_alphabet(None, None) is None
+
+
+# --- _resolve_alphabet -------------------------------------------------------
+
+def test_resolve_alphabet_given_wins():
+    aligner = PairwiseAligner()
+    aligner.substitution_matrix = _matrix("TCAG")
+    assert _resolve_alphabet("ACGT", ["XY"], ["Z"], aligner,
+                             {"substitution_matrix": _matrix("GATC")}) == "ACGT"
+
+
+def test_resolve_alphabet_from_warm_start():
+    assert _resolve_alphabet(None, ["XY"], ["Z"], None,
+                             {"substitution_matrix": _matrix("GATC")}) == "GATC"
+
+
+def test_resolve_alphabet_from_sequences_is_sorted_union():
+    assert _resolve_alphabet(None, ["GAT", "TTA"], ["CAN"], None, {"match_score": 1.0}) == "ACGNT"

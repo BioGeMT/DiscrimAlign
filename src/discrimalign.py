@@ -74,6 +74,22 @@ def _warm_start_alphabet(baseline_aligner=None, initial_parameters=None):
     return None
 
 
+def _resolve_alphabet(alphabet, seqlistA, seqlistB, baseline_aligner=None,
+                      initial_parameters=None):
+    """
+    The alphabet of the fit: the one given; else a warm start's (the
+    substitution matrix of initial_parameters, then of baseline_aligner); else
+    the sorted characters of the sequences.
+    """
+    if alphabet is not None:
+        return alphabet
+    alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
+    if alphabet is not None:
+        return alphabet
+    return ''.join(sorted({char for seqlist in (seqlistA, seqlistB)
+                           for seq in seqlist for char in seq}))
+
+
 def _configure_aligner(aligner, params, gap_mode, substitution_mode):
     if gap_mode == 'affine':
         aligner.open_gap_score = params['open_gap_score']
@@ -215,13 +231,8 @@ def discrimalign(seqlistA, seqlistB,
         # TODO: long-pair (e.g. protein) workflows can be faster on physical
         # cores once their DP tables outgrow the cache; see TODO.md in nwgrad.
         num_threads = os.cpu_count() or 1
-    if alphabet is None:
-        alphabet = _warm_start_alphabet(baseline_aligner, initial_parameters)
-    if alphabet is None:
-        charsetA = set(char for seq in seqlistA for char in seq)
-        charsetB = set(char for seq in seqlistB for char in seq)
-        alphabet = charsetA | charsetB
-        alphabet = ''.join(sorted(alphabet))
+    alphabet = _resolve_alphabet(alphabet, seqlistA, seqlistB, baseline_aligner,
+                                 initial_parameters)
 
     if verbose:
         print('Alphabet:')
@@ -425,6 +436,7 @@ def discrimalign(seqlistA, seqlistB,
         results['alignments'] = alnlist
     results['alignment_logit_scores'] = logit_scores
     results['alpha'] = updated_parameters['alpha']
+    results['alphabet'] = alphabet
     # results['loglik_expectation_trajectory'] = loglik_expectation
     # results['loglik_sd_trajectory'] = loglik_sd
     return results
