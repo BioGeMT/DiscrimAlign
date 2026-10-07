@@ -53,6 +53,38 @@ def baseline_parameters(aligner, gap_mode, alphabet):
     return params
 
 
+def nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                      fill='striped', chunk_size=100_000):
+    """
+    Every pair's optimal alignment under nw_params (nwgrad.AlignParams): a
+    Bio.Align.Alignment with .score, or EmptyLocalAlignment for a local pair
+    with no positive-scoring alignment. Recovering a path needs pair-owned DP
+    tables, so the pairs are aligned chunk_size at a time to bound memory.
+    """
+    from Bio.Align import Alignment
+    seqlistA, seqlistB = list(seqlistA), list(seqlistB)
+    out = []
+    for start in range(0, len(seqlistA), chunk_size):
+        seqs_a = seqlistA[start:start + chunk_size]
+        seqs_b = seqlistB[start:start + chunk_size]
+        batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads), traceback='pointers')
+        batch.fill = fill
+        batch.add_many(seqs_a, seqs_b, nw_params, gap_model=gap_mode, mode=mode,
+                       grad_mode='none')
+        batch.alloc_dp()
+        batch.align_full()
+        for i, (seq_a, seq_b) in enumerate(zip(seqs_a, seqs_b)):
+            pair = batch[i]
+            coordinates = pair.coordinates()
+            if (coordinates[:, 0] == coordinates[:, -1]).all():
+                out.append(EmptyLocalAlignment())
+                continue
+            alignment = Alignment([seq_a, seq_b], coordinates)
+            alignment.score = pair.score
+            out.append(alignment)
+    return out
+
+
 class NwgradEngine:
     """
     Same interface as the Biopython engine in discrimalign: set_params(),
@@ -94,35 +126,14 @@ class NwgradEngine:
 
     def alignments(self, chunk_size=100_000):
         """
-        Every pair's alignment at the parameters last set: a Bio.Align.Alignment
-        with .score, or EmptyLocalAlignment for a local pair with no
-        positive-scoring alignment. These are nwgrad's own paths, the ones the
-        scores and subgradients come from, so on ties they agree with them, which
-        a Biopython realignment need not. Recovering a path needs pair-owned DP
-        tables, so the pairs are aligned chunk_size at a time to bound memory.
+        Every pair's alignment at the parameters last set; see
+        nwgrad_alignments(). These are nwgrad's own paths, the ones the scores
+        and subgradients come from, so on ties they agree with them, which a
+        Biopython realignment need not.
         """
-        from Bio.Align import Alignment
-        out = []
-        for start in range(0, len(self.seqlistA), chunk_size):
-            seqs_a = self.seqlistA[start:start + chunk_size]
-            seqs_b = self.seqlistB[start:start + chunk_size]
-            batch = nwgrad.SeqPairBatchDouble(n_threads=self.batch.n_threads,
-                                              traceback='pointers')
-            batch.fill = self.fill
-            batch.add_many(seqs_a, seqs_b, self._nw_params, gap_model=self.gap_mode,
-                           mode=self.mode, grad_mode='none')
-            batch.alloc_dp()
-            batch.align_full()
-            for i, (seq_a, seq_b) in enumerate(zip(seqs_a, seqs_b)):
-                pair = batch[i]
-                coordinates = pair.coordinates()
-                if (coordinates[:, 0] == coordinates[:, -1]).all():
-                    out.append(EmptyLocalAlignment())
-                    continue
-                alignment = Alignment([seq_a, seq_b], coordinates)
-                alignment.score = pair.score
-                out.append(alignment)
-        return out
+        return nwgrad_alignments(self.seqlistA, self.seqlistB, self._nw_params,
+                                 self.gap_mode, self.mode, self.batch.n_threads,
+                                 fill=self.fill, chunk_size=chunk_size)
 
     def scores(self):
         self.batch.score_and_grad()

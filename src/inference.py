@@ -1,6 +1,7 @@
 """Inference helpers for trained DiscrimAlign models."""
 
 import csv
+import os
 import pickle
 from pathlib import Path
 
@@ -80,6 +81,35 @@ def summarize_alignment(alignment):
     }
 
 
+def _nwgrad_alignments(seqlistA, seqlistB, aligner, num_threads):
+    """
+    The pairs' optimal alignments under a fitted aligner, from nwgrad batches.
+    A model with a substitution matrix is scored over that matrix's alphabet;
+    a match/mismatch model scores any characters, so its alphabet is the one
+    the pairs contain.
+    """
+    from .nwgrad_backend import baseline_parameters, nwgrad_alignments
+    from .nwgrad_params import to_nwgrad
+
+    if aligner.substitution_matrix is not None:
+        alphabet = "".join(aligner.substitution_matrix.alphabet)
+    else:
+        alphabet = "".join(sorted(set("".join(seqlistA) + "".join(seqlistB))))
+    try:
+        linear = aligner.open_gap_score == aligner.extend_gap_score
+    except ValueError:
+        linear = False  # baseline_parameters() raises with the explanation
+    gap_mode = "linear" if linear else "affine"
+    try:
+        params = baseline_parameters(aligner, gap_mode, alphabet)
+    except ValueError as error:
+        raise ValueError(f"backend='nwgrad' cannot express the model's aligner ({error}); "
+                         "use backend='biopython'") from error
+    nw_params = to_nwgrad(params, gap_mode, "general", alphabet)
+    return nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, aligner.mode,
+                             num_threads)
+
+
 def predict_pairs(
     seqlistA,
     seqlistB,
@@ -87,6 +117,8 @@ def predict_pairs(
     return_alignments=True,
     normalize="auto",
     reverse_complement_b=False,
+    backend="nwgrad",
+    num_threads=None,
 ):
     """Score sequence pairs with a fitted DiscrimAlign model.
 
@@ -102,20 +134,45 @@ def predict_pairs(
         Convert U/T automatically when the fitted model alphabet requires it.
     reverse_complement_b : bool, default=False
         Reverse-complement each second sequence before normalization and scoring.
+    backend : {"nwgrad", "biopython"}, default="nwgrad"
+        Alignment engine. "nwgrad" aligns all pairs in parallel batches;
+        "biopython" aligns them one at a time with the model's PairwiseAligner.
+        Both give the same scores up to floating-point rounding; where several
+        alignments of a pair are optimal, they may return different ones.
+    num_threads : int, optional
+        Threads for the nwgrad engine; all logical cores by default.
     """
     seqlistA = list(seqlistA)
     seqlistB = list(seqlistB)
     if len(seqlistA) != len(seqlistB):
         raise ValueError("seqlistA and seqlistB must have the same length")
+    if backend not in ("nwgrad", "biopython"):
+        raise ValueError(f"backend must be 'nwgrad' or 'biopython', got {backend!r}")
+    for seqlist, name in ((seqlistA, "seqlistA"), (seqlistB, "seqlistB")):
+        empty = [i for i, seq in enumerate(seqlist) if len(seq) == 0]
+        if empty:
+            raise ValueError(f"{name} contains empty sequences (at indices {empty[:10]}); "
+                             "every sequence needs at least one residue")
 
     aligner, alpha = _model_parts(model)
     alphabet = _model_alphabet(aligner)
-    rows = []
-    for index, (seqA, seqB) in enumerate(zip(seqlistA, seqlistB)):
+    normalized_seqlistA = []
+    normalized_seqlistB = []
+    for seqA, seqB in zip(seqlistA, seqlistB):
         transformed_seqB = _reverse_complement(seqB) if reverse_complement_b else seqB
-        normalized_seqA = _normalize_sequence(seqA, alphabet, normalize)
-        normalized_seqB = _normalize_sequence(transformed_seqB, alphabet, normalize)
-        alignment = get_first_alignment(normalized_seqA, normalized_seqB, aligner)
+        normalized_seqlistA.append(_normalize_sequence(seqA, alphabet, normalize))
+        normalized_seqlistB.append(_normalize_sequence(transformed_seqB, alphabet, normalize))
+
+    if backend == "nwgrad" and normalized_seqlistA:
+        alignments = _nwgrad_alignments(normalized_seqlistA, normalized_seqlistB, aligner,
+                                        num_threads or os.cpu_count() or 1)
+    else:
+        alignments = [get_first_alignment(seqA, seqB, aligner)
+                      for seqA, seqB in zip(normalized_seqlistA, normalized_seqlistB)]
+
+    rows = []
+    for index, (seqA, seqB, normalized_seqA, normalized_seqB, alignment) in enumerate(
+            zip(seqlistA, seqlistB, normalized_seqlistA, normalized_seqlistB, alignments)):
         probability = float(logit_partial_scores([alignment.score], alpha)[0])
         row = {
             "index": index,
@@ -157,8 +214,13 @@ def predict_csv(
     sequence_b_column="sequence_b",
     normalize="auto",
     reverse_complement_b=False,
+    backend="nwgrad",
+    num_threads=None,
 ):
-    """Run inference from a CSV file and write prediction rows to another CSV."""
+    """Run inference from a CSV file and write prediction rows to another CSV.
+
+    backend and num_threads are passed to ``predict_pairs``.
+    """
     input_csv = Path(input_csv)
     output_csv = Path(output_csv)
     with input_csv.open(newline="") as input_file:
@@ -181,6 +243,8 @@ def predict_csv(
         model,
         normalize=normalize,
         reverse_complement_b=reverse_complement_b,
+        backend=backend,
+        num_threads=num_threads,
     )
     output_rows = []
     for input_row, prediction in zip(input_rows, predictions):

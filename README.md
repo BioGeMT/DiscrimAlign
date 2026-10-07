@@ -216,6 +216,8 @@ print(rows[0]["aligned_sequence_b"])
 
 Each inference row is a plain dictionary with the input sequences, normalized sequences, alignment score, logistic probability, aligned strings, match markers, and per-position operations (`match`, `mismatch`, or `gap`). By default, inference normalizes `U`/`T` automatically to match the fitted model alphabet; pass `--normalize none` in the CLI to disable this.
 
+Inference aligns with nwgrad by default, all pairs in parallel batches (`backend="nwgrad"`, `--backend nwgrad` in the CLI). `backend="biopython"` aligns the pairs one at a time with the model's `PairwiseAligner`, as earlier versions did. Both give the same scores and probabilities up to floating-point rounding; where several alignments of a pair are optimal, they may show different ones. `num_threads` (`--threads`) sets nwgrad's thread count, all logical cores by default. A model whose aligner nwgrad cannot express, for example with a wildcard or with end-gap scores that differ from internal ones, raises a `ValueError` with nwgrad; use the Biopython backend for it. Empty sequences raise a `ValueError` with either backend.
+
 To persist a fitted model and run CSV inference later:
 
 ```python
