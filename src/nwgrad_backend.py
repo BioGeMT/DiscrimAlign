@@ -73,6 +73,16 @@ def _alignments_from_paths(batch, seqlistA, seqlistB):
     return out
 
 
+def _gradient_free_batch(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                         fill='interpair'):
+    """One nwgrad batch of the pairs under nw_params, without gradients."""
+    batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads), traceback='pointers',
+                                      gap_model=gap_mode, mode=mode, grad_mode='none')
+    batch.fill = fill
+    batch.add_many(seqlistA, seqlistB, nw_params)
+    return batch
+
+
 def nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
                       fill='interpair'):
     """
@@ -81,12 +91,23 @@ def nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads
     stored paths take a few bytes per alignment column.
     """
     seqlistA, seqlistB = list(seqlistA), list(seqlistB)
-    batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads), traceback='pointers',
-                                      gap_model=gap_mode, mode=mode, grad_mode='none')
-    batch.fill = fill
-    batch.add_many(seqlistA, seqlistB, nw_params)
+    batch = _gradient_free_batch(seqlistA, seqlistB, nw_params, gap_mode, mode,
+                                 num_threads, fill)
     batch.score_and_grad(keep_paths=True)
     return _alignments_from_paths(batch, seqlistA, seqlistB)
+
+
+def nwgrad_scores(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                  fill='interpair'):
+    """
+    Every pair's optimal score under nw_params, as a float64 array. Score-only:
+    no traceback and no alignment objects, which is several times faster than
+    nwgrad_alignments() when only the scores are needed.
+    """
+    batch = _gradient_free_batch(list(seqlistA), list(seqlistB), nw_params, gap_mode,
+                                 mode, num_threads, fill)
+    batch.score_and_grad()
+    return batch.scores()
 
 
 class NwgradEngine:

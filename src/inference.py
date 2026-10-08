@@ -81,14 +81,14 @@ def summarize_alignment(alignment):
     }
 
 
-def _nwgrad_alignments(seqlistA, seqlistB, aligner, num_threads):
+def _nwgrad_problem(seqlistA, seqlistB, aligner):
     """
-    The pairs' optimal alignments under a fitted aligner, from nwgrad batches.
-    A model with a substitution matrix is scored over that matrix's alphabet;
-    a match/mismatch model scores any characters, so its alphabet is the one
-    the pairs contain.
+    (nwgrad.AlignParams, gap model) scoring like a fitted aligner. A model with
+    a substitution matrix is scored over that matrix's alphabet; a
+    match/mismatch model scores any characters, so its alphabet is the one the
+    pairs contain.
     """
-    from .nwgrad_backend import baseline_parameters, nwgrad_alignments
+    from .nwgrad_backend import baseline_parameters
     from .nwgrad_params import to_nwgrad
 
     if aligner.substitution_matrix is not None:
@@ -105,9 +105,24 @@ def _nwgrad_alignments(seqlistA, seqlistB, aligner, num_threads):
     except ValueError as error:
         raise ValueError(f"backend='nwgrad' cannot express the model's aligner ({error}); "
                          "use backend='biopython'") from error
-    nw_params = to_nwgrad(params, gap_mode, "general", alphabet)
+    return to_nwgrad(params, gap_mode, "general", alphabet), gap_mode
+
+
+def _nwgrad_alignments(seqlistA, seqlistB, aligner, num_threads):
+    """The pairs' optimal alignments under a fitted aligner, from nwgrad."""
+    from .nwgrad_backend import nwgrad_alignments
+
+    nw_params, gap_mode = _nwgrad_problem(seqlistA, seqlistB, aligner)
     return nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, aligner.mode,
                              num_threads)
+
+
+def _nwgrad_scores(seqlistA, seqlistB, aligner, num_threads):
+    """The pairs' optimal scores under a fitted aligner, from nwgrad, score-only."""
+    from .nwgrad_backend import nwgrad_scores
+
+    nw_params, gap_mode = _nwgrad_problem(seqlistA, seqlistB, aligner)
+    return nwgrad_scores(seqlistA, seqlistB, nw_params, gap_mode, aligner.mode, num_threads)
 
 
 def predict_pairs(
@@ -129,7 +144,9 @@ def predict_pairs(
     model : dict
         Result dictionary returned by ``discrimalign``.
     return_alignments : bool, default=True
-        Include text and per-position alignment summaries in each row.
+        Include text and per-position alignment summaries in each row. With
+        backend="nwgrad", False also skips the traceback: the pairs are scored
+        score-only, which is much faster on large inputs.
     normalize : {"auto", "none"}, default="auto"
         Convert U/T automatically when the fitted model alphabet requires it.
     reverse_complement_b : bool, default=False
@@ -163,28 +180,37 @@ def predict_pairs(
         normalized_seqlistA.append(_normalize_sequence(seqA, alphabet, normalize))
         normalized_seqlistB.append(_normalize_sequence(transformed_seqB, alphabet, normalize))
 
+    alignments = None
     if backend == "nwgrad" and normalized_seqlistA:
-        alignments = _nwgrad_alignments(normalized_seqlistA, normalized_seqlistB, aligner,
-                                        num_threads or os.cpu_count() or 1)
+        threads = num_threads or os.cpu_count() or 1
+        if return_alignments:
+            alignments = _nwgrad_alignments(normalized_seqlistA, normalized_seqlistB,
+                                            aligner, threads)
+            scores = [alignment.score for alignment in alignments]
+        else:
+            # No alignments wanted: nwgrad's score-only DP, without a traceback.
+            scores = _nwgrad_scores(normalized_seqlistA, normalized_seqlistB, aligner,
+                                    threads)
     else:
         alignments = [get_first_alignment(seqA, seqB, aligner)
                       for seqA, seqB in zip(normalized_seqlistA, normalized_seqlistB)]
+        scores = [alignment.score for alignment in alignments]
+    probabilities = logit_partial_scores(scores, alpha)
 
     rows = []
-    for index, (seqA, seqB, normalized_seqA, normalized_seqB, alignment) in enumerate(
-            zip(seqlistA, seqlistB, normalized_seqlistA, normalized_seqlistB, alignments)):
-        probability = float(logit_partial_scores([alignment.score], alpha)[0])
+    for index, (seqA, seqB, normalized_seqA, normalized_seqB) in enumerate(
+            zip(seqlistA, seqlistB, normalized_seqlistA, normalized_seqlistB)):
         row = {
             "index": index,
             "sequence_a": seqA,
             "sequence_b": seqB,
             "normalized_sequence_a": normalized_seqA,
             "normalized_sequence_b": normalized_seqB,
-            "alignment_score": float(alignment.score),
-            "probability": probability,
+            "alignment_score": float(scores[index]),
+            "probability": float(probabilities[index]),
         }
         if return_alignments:
-            row.update(summarize_alignment(alignment))
+            row.update(summarize_alignment(alignments[index]))
         rows.append(row)
     return rows
 

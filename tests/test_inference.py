@@ -177,3 +177,20 @@ def test_predict_pairs_rejects_empty_sequences(backend):
     model = load_model(MANAKOV)
     with pytest.raises(ValueError, match="seqlistB contains empty sequences"):
         predict_pairs(["ACGT", "ACG"], ["ACG", ""], model, backend=backend)
+
+
+def test_predict_pairs_nwgrad_without_alignments_is_score_only(monkeypatch):
+    """return_alignments=False scores without a traceback: the same scores and
+    probabilities, bit for bit, and no alignment is built."""
+    import src.nwgrad_backend as nwgrad_backend
+    model = load_model(MANAKOV)
+    rng = np.random.default_rng(32)
+    A = [random_seq(rng, 22) for _ in range(50)] + ["AAAA"]
+    B = [random_seq(rng, 50) for _ in range(50)] + ["CCCC"]
+    with_paths = predict_pairs(A, B, model, backend="nwgrad")
+    monkeypatch.setattr(nwgrad_backend, "nwgrad_alignments",
+                        lambda *a, **k: pytest.fail("built alignments"))
+    score_only = predict_pairs(A, B, model, backend="nwgrad", return_alignments=False)
+    assert [r["alignment_score"] for r in score_only] == [r["alignment_score"] for r in with_paths]
+    assert [r["probability"] for r in score_only] == [r["probability"] for r in with_paths]
+    assert "aligned_sequence_a" not in score_only[0]
