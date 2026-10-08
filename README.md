@@ -19,7 +19,7 @@ pyproject.toml                Project environment managed by uv
 
 - Python `>=3.10`
 - `uv` for environment management
-- `nwgrad` 0.5.2 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
+- `nwgrad` 0.6.0 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
 - JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
 The repository uses a single project environment managed by `uv`. This environment includes the scientific Python dependencies, JupyterLab, an IPython kernel for notebooks, and `miRBench` for the miRNA case-study dataset interface.
@@ -236,7 +236,7 @@ uv run python -m src.infer --model model.pkl --input examples/mirna_pairs.csv --
 
 `num_threads=0`, the default, chooses the thread count automatically: all logical cores with the nwgrad backend, and one thread with the Biopython backend, whose threads contend for Python's global interpreter lock and only slow it down. Any other value is used as given. For long sequences such as full-length proteins, the number of physical cores can be faster than all logical cores; pass it explicitly.
 
-`nwgrad_fill` selects nwgrad's vectorized DP fill: `"striped"` (default), `"rowwise"` or `"interpair"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. On short pairs such as miRNA-target sites the default is the slowest: on all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`, which aligns several pairs at once, one per vector lane. On long sequences such as proteins, keep the default.
+`nwgrad_fill` selects nwgrad's vectorized DP fill: `"interpair"` (default, nwgrad's own default), `"striped"` or `"rowwise"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. `"interpair"` aligns several short pairs at once, one per vector lane, and sends pairs too long for that to a per-pair fill. On all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500, nwgrad 0.5.2), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`. Leave it at the default unless measuring.
 
 ### Intercept fit
 

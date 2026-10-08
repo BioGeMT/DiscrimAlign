@@ -12,7 +12,7 @@ dependencies = [
     "matplotlib>=3.9.2",
     "mirbench",
     "numexpr>=2.10",
-    "nwgrad>=0.5.2",
+    "nwgrad>=0.6.0",
     "numpy>=1.26.4",
     "pandas>=2.2.2",
     "scikit-learn>=1.4.2",
