@@ -102,7 +102,8 @@ class NwgradEngine:
         self.gap_mode = gap_mode
         self.substitution_mode = substitution_mode
         self.alphabet = alphabet
-        self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
+        self.num_threads = int(num_threads)
+        self.batch = nwgrad.SeqPairBatchDouble(n_threads=self.num_threads,
                                                traceback='pointers')
         self.fill = fill
         self.batch.fill = fill
@@ -154,7 +155,7 @@ class NwgradEngine:
             return logistic_step(self, labels, alpha0, alpha_solver)
         self.batch.score_and_grad()
         step = nwgrad_logistic.step(self.batch, labels, alpha0)
-        loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels)
+        loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels, self.num_threads)
         return loglik, step.alpha, grad_to_raw(step.grad)
 
     def raw_counts(self):

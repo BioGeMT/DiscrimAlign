@@ -417,7 +417,7 @@ def discrimalign(seqlistA, seqlistB,
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
     new_logL = _logit_logL_unchecked(np.asarray(alignment_scores, dtype=float),
-                                     updated_parameters['alpha'], labels_float)
+                                     updated_parameters['alpha'], labels_float, num_threads)
 ##    EL = 0
 ##    VL = 0
 ##    for ls in logit_scores:

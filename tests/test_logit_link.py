@@ -359,3 +359,21 @@ def test_subgradient_on_biopython_alignment():
     assert G.sum() - np.trace(G) == counts.mismatches
     assert sg["Gap opens"] == counts.open_gaps
     assert sg["Gap extends"] == counts.extend_gaps
+
+
+def test_logL_does_not_depend_on_thread_count():
+    rng = np.random.default_rng(5)
+    scores = rng.normal(scale=4, size=100_003)
+    labels = rng.integers(0, 2, scores.size)
+    values = {t: logit_logL(scores, -0.2, labels, num_threads=t) for t in (1, 2, 3, 8)}
+    assert len(set(values.values())) == 1
+
+
+def test_logL_restores_numexpr_thread_count():
+    import numexpr
+    previous = numexpr.set_num_threads(3)
+    try:
+        logit_logL([0.5, -1.0], 0.1, [1, 0], num_threads=2)
+        assert numexpr.set_num_threads(3) == 3
+    finally:
+        numexpr.set_num_threads(previous)

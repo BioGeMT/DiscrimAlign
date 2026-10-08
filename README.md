@@ -273,7 +273,7 @@ Compared with earlier versions of DiscrimAlign:
 - The default backend is nwgrad, and `num_threads` defaults to automatic.
 - The intercept α is fitted exactly by a safeguarded Newton method (`alpha_solver="safeguarded_newton"`); the previous BFGS fit is available as `alpha_solver="bfgs"`.
 - Labels are checked once, before any alignment work: labels other than 0 and 1, or labels of only one class, raise a `ValueError`, since with one class the likelihood has no finite maximum. This also applies with `initial_parameters`.
-- The log-likelihood is computed from the logits, as Σ y·z − Σ log(1 + e^z) with z = α + score, without clipping probabilities. `loglik_trajectory` and `final_loglik` therefore differ from earlier versions on confident predictions, where the clipping capped each pair's loss at about 36. A non-finite score or α raises a `FloatingPointError`.
+- The log-likelihood is computed from the logits, as Σ y·z − Σ log(1 + e^z) with z = α + score, without clipping probabilities, using numexpr on `num_threads` threads (the value does not depend on the thread count). `loglik_trajectory` and `final_loglik` therefore differ from earlier versions on confident predictions, where the clipping capped each pair's loss at about 36. A non-finite score or α raises a `FloatingPointError`.
 - `logit_logL` in `src.logit_link` takes `(alignment_scores, alpha, labels)` instead of `(logit_scores, labels)`; calls in the old form raise a `TypeError`.
 - The results contain `alphabet`: the alphabet of the fit, whether given, taken from a warm start, or inferred from the sequences.
 
