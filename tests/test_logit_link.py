@@ -82,9 +82,13 @@ def test_logL_is_exact_on_certain_wrong_predictions():
     assert logit_logL([-800.0, 800.0], 0.0, [1, 0]) == -1600.0
 
 
-def test_logL_keeps_precision_on_confident_right_predictions():
-    # log(1 - p) with p = expit(-40) would round to 0; the exact value is about -4e-18.
-    assert logit_logL([40.0], 0.0, [1]) == pytest.approx(-np.log1p(np.exp(-40.0)), rel=1e-14)
+@pytest.mark.parametrize("logit", [-50.0, -40.0, -30.0, -20.0, 20.0, 30.0, 40.0, 50.0])
+def test_logL_keeps_precision_on_confident_right_predictions(logit):
+    # At z=40, y=1, subtracting z + log1p(exp(-z)) from z rounds to zero.
+    # Disable the default absolute tolerance so it cannot hide the lost term.
+    expected = -np.log1p(np.exp(-abs(logit)))
+    assert logit_logL([logit], 0.0, [int(logit > 0)]) == pytest.approx(
+        expected, rel=1e-14, abs=0.0)
 
 
 @pytest.mark.parametrize("scores,alpha", [([0.0, np.nan], 0.0), ([0.0, np.inf], 0.0),

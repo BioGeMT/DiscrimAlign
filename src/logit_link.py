@@ -37,9 +37,13 @@ def logit_logL(alignment_scores, alpha, labels, num_threads=1):
                                  labels.astype(float), num_threads)
 
 
-# Per pair: y z - log(1 + e^z), with log(1 + e^z) = max(z, 0) + log1p(e^-|z|),
-# which is exact and cannot overflow. One numexpr pass, multithreaded.
-_LOGL_TERMS = 'y*(s + a) - (where(s + a > 0, s + a, 0) + log1p(exp(-abs(s + a))))'
+# Per pair: y z - max(z, 0) - log1p(e^-|z|). Combine the linear terms first:
+# for z > 0, y=1 they cancel exactly, preserving the small log1p correction.
+# The exponential cannot overflow. One numexpr pass, multithreaded.
+_LOGL_TERMS = (
+    'where(s + a > 0, (y - 1)*(s + a), y*(s + a))'
+    ' - log1p(exp(-abs(s + a)))'
+)
 
 
 def _logit_logL_unchecked(alignment_scores, alpha, labels, num_threads=1):
