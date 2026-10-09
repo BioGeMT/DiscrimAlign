@@ -19,7 +19,7 @@ pyproject.toml                Project environment managed by uv
 
 - Python `>=3.10`
 - `uv` for environment management
-- `nwgrad` 0.5.2 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
+- `nwgrad` 0.6.0 or later, the default alignment backend. `uv sync` installs it as a binary wheel. Building it from source needs a C++20 compiler that provides `<experimental/simd>`, such as GCC; on macOS use Homebrew GCC (`CC=gcc-16 CXX=g++-16`), since Apple's clang does not provide it.
 - JupyterLab or VS Code notebook support for running `Simulation experiments.ipynb`
 
 The repository uses a single project environment managed by `uv`. This environment includes the scientific Python dependencies, JupyterLab, an IPython kernel for notebooks, and `miRBench` for the miRNA case-study dataset interface.
@@ -216,6 +216,8 @@ print(rows[0]["aligned_sequence_b"])
 
 Each inference row is a plain dictionary with the input sequences, normalized sequences, alignment score, logistic probability, aligned strings, match markers, and per-position operations (`match`, `mismatch`, or `gap`). By default, inference normalizes `U`/`T` automatically to match the fitted model alphabet; pass `--normalize none` in the CLI to disable this.
 
+Inference aligns with nwgrad by default, all pairs in parallel batches (`backend="nwgrad"`, `--backend nwgrad` in the CLI). `backend="biopython"` aligns the pairs one at a time with the model's `PairwiseAligner`, as earlier versions did. Both give the same scores and probabilities up to floating-point rounding; where several alignments of a pair are optimal, they may show different ones. `num_threads` (`--threads`) sets nwgrad's thread count, all logical cores by default. A model whose aligner nwgrad cannot express, for example with a wildcard or with end-gap scores that differ from internal ones, raises a `ValueError` with nwgrad; use the Biopython backend for it. Empty sequences raise a `ValueError` with either backend.
+
 To persist a fitted model and run CSV inference later:
 
 ```python
@@ -234,7 +236,7 @@ uv run python -m src.infer --model model.pkl --input examples/mirna_pairs.csv --
 
 `num_threads=0`, the default, chooses the thread count automatically: all logical cores with the nwgrad backend, and one thread with the Biopython backend, whose threads contend for Python's global interpreter lock and only slow it down. Any other value is used as given. For long sequences such as full-length proteins, the number of physical cores can be faster than all logical cores; pass it explicitly.
 
-`nwgrad_fill` selects nwgrad's vectorized DP fill: `"striped"` (default), `"rowwise"` or `"interpair"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. On short pairs such as miRNA-target sites the default is the slowest: on all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`, which aligns several pairs at once, one per vector lane. On long sequences such as proteins, keep the default.
+`nwgrad_fill` selects nwgrad's vectorized DP fill: `"interpair"` (default, nwgrad's own default), `"striped"` or `"rowwise"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. `"interpair"` aligns several short pairs at once, one per vector lane, and sends pairs too long for that to a per-pair fill. On all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500, nwgrad 0.5.2), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`. Leave it at the default unless measuring.
 
 ### Intercept fit
 
@@ -271,7 +273,7 @@ Compared with earlier versions of DiscrimAlign:
 - The default backend is nwgrad, and `num_threads` defaults to automatic.
 - The intercept α is fitted exactly by a safeguarded Newton method (`alpha_solver="safeguarded_newton"`); the previous BFGS fit is available as `alpha_solver="bfgs"`.
 - Labels are checked once, before any alignment work: labels other than 0 and 1, or labels of only one class, raise a `ValueError`, since with one class the likelihood has no finite maximum. This also applies with `initial_parameters`.
-- The log-likelihood is computed from the logits, as Σ y·z − Σ log(1 + e^z) with z = α + score, without clipping probabilities. `loglik_trajectory` and `final_loglik` therefore differ from earlier versions on confident predictions, where the clipping capped each pair's loss at about 36. A non-finite score or α raises a `FloatingPointError`.
+- The log-likelihood is computed from the logits, as Σ y·z − Σ log(1 + e^z) with z = α + score, without clipping probabilities, using numexpr on `num_threads` threads (the value does not depend on the thread count). `loglik_trajectory` and `final_loglik` therefore differ from earlier versions on confident predictions, where the clipping capped each pair's loss at about 36. A non-finite score or α raises a `FloatingPointError`.
 - `logit_logL` in `src.logit_link` takes `(alignment_scores, alpha, labels)` instead of `(logit_scores, labels)`; calls in the old form raise a `TypeError`.
 - The results contain `alphabet`: the alphabet of the fit, whether given, taken from a warm start, or inferred from the sequences.
 

@@ -3,6 +3,7 @@ Functions to calculate the logistic function of alignment score
 and its subgradients
 """
 
+import numexpr
 import numpy as np
 from Bio.Align import substitution_matrices
 from scipy.optimize import minimize
@@ -18,32 +19,51 @@ def logit_partial_scores(alignment_scores, alpha):
     return expit(alpha + alignment_scores)
 
 
-def logit_logL(alignment_scores, alpha, labels):
+def logit_logL(alignment_scores, alpha, labels, num_threads=1):
     """
     Calculate the log likelihood in the logistic model:
     sum_i y_i z_i - log(1 + e^{z_i}), with z_i = alpha + alignment_scores[i].
     Computed from the logits rather than from the probabilities, so it needs
     no clipping and loses no precision on confident predictions, and
     log(1 + e^z) is evaluated without overflow.
-    labels are a 1D array with values 0 or 1.
+    labels are a 1D array with values 0 or 1. num_threads: numexpr threads;
+    the result does not depend on it.
     Raises FloatingPointError if the result is not finite.
     """
     labels = np.asarray(labels)
     if not np.isin(labels, [0, 1]).all():
         raise ValueError('Labels can only be 0 or 1')
     return _logit_logL_unchecked(np.asarray(alignment_scores, dtype=float), alpha,
-                                 labels.astype(float))
+                                 labels.astype(float), num_threads)
 
 
-def _logit_logL_unchecked(alignment_scores, alpha, labels):
+# Per pair: y z - max(z, 0) - log1p(e^-|z|). Combine the linear terms first:
+# for z > 0, y=1 they cancel exactly, preserving the small log1p correction.
+# The exponential cannot overflow. One numexpr pass, multithreaded.
+_LOGL_TERMS = (
+    'where(s + a > 0, (y - 1)*(s + a), y*(s + a))'
+    ' - log1p(exp(-abs(s + a)))'
+)
+
+
+def _logit_logL_unchecked(alignment_scores, alpha, labels, num_threads=1):
     """
     logit_logL() for a float array of alignment scores and float labels
     already known to be 0 or 1. For loops that evaluate it on the same labels
     many times.
+
+    The per-pair terms are evaluated by numexpr on num_threads threads and
+    summed by numpy; each term is computed independently, so the result is the
+    same for any thread count. numexpr's own fused sum() runs single-threaded,
+    which is why the sum is left to numpy.
     """
-    z = alignment_scores + alpha
-    with np.errstate(invalid='ignore'):   # a non-finite result raises below
-        logL = float(np.dot(labels, z) - np.sum(np.logaddexp(0.0, z)))
+    previous = numexpr.set_num_threads(max(1, min(int(num_threads), numexpr.MAX_THREADS)))
+    try:
+        terms = numexpr.evaluate(_LOGL_TERMS, local_dict={
+            's': alignment_scores, 'y': labels, 'a': float(alpha)})
+    finally:
+        numexpr.set_num_threads(previous)
+    logL = float(np.sum(terms))
     if not np.isfinite(logL):
         raise FloatingPointError(f'Log-likelihood is {logL} at alpha={alpha}: '
                                  'alignment scores or alpha are not finite')
@@ -167,13 +187,14 @@ def logistic_step(engine, labels, alpha0, alpha_solver='safeguarded_newton'):
     on the log-likelihood).
     """
     alignment_scores = np.asarray(engine.scores(), dtype=float)
-    loglik = _logit_logL_unchecked(alignment_scores, alpha0, labels)
+    threads = engine.num_threads
+    loglik = _logit_logL_unchecked(alignment_scores, alpha0, labels, threads)
     if alpha_solver == 'safeguarded_newton':
         alpha = _fit_alpha_unchecked(alignment_scores, labels, alpha0,
                                      logit_scores0=logit_partial_scores(alignment_scores, alpha0))
     else:
         def alpha_target(alpha):
-            return -_logit_logL_unchecked(alignment_scores, alpha[0], labels)
+            return -_logit_logL_unchecked(alignment_scores, alpha[0], labels, threads)
 
         def alpha_fprime(alpha):
             return -np.sum(labels - logit_partial_scores(alignment_scores, alpha))

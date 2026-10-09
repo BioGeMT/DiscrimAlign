@@ -53,6 +53,63 @@ def baseline_parameters(aligner, gap_mode, alphabet):
     return params
 
 
+def _alignments_from_paths(batch, seqlistA, seqlistB):
+    """
+    Every pair's alignment from a batch's stored paths (after
+    score_and_grad(keep_paths=True)): a Bio.Align.Alignment with .score, or
+    EmptyLocalAlignment for a local pair with no positive-scoring alignment.
+    """
+    from Bio.Align import Alignment
+    out = []
+    for i, (seq_a, seq_b) in enumerate(zip(seqlistA, seqlistB)):
+        pair = batch[i]
+        coordinates = pair.coordinates()
+        if (coordinates[:, 0] == coordinates[:, -1]).all():
+            out.append(EmptyLocalAlignment())
+            continue
+        alignment = Alignment([seq_a, seq_b], coordinates)
+        alignment.score = pair.score
+        out.append(alignment)
+    return out
+
+
+def _gradient_free_batch(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                         fill='interpair'):
+    """One nwgrad batch of the pairs under nw_params, without gradients."""
+    batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads), traceback='pointers',
+                                      gap_model=gap_mode, mode=mode, grad_mode='none')
+    batch.fill = fill
+    batch.add_many(seqlistA, seqlistB, nw_params)
+    return batch
+
+
+def nwgrad_alignments(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                      fill='interpair'):
+    """
+    Every pair's optimal alignment under nw_params (nwgrad.AlignParams), from
+    one nwgrad batch without gradients; see _alignments_from_paths(). The
+    stored paths take a few bytes per alignment column.
+    """
+    seqlistA, seqlistB = list(seqlistA), list(seqlistB)
+    batch = _gradient_free_batch(seqlistA, seqlistB, nw_params, gap_mode, mode,
+                                 num_threads, fill)
+    batch.score_and_grad(keep_paths=True)
+    return _alignments_from_paths(batch, seqlistA, seqlistB)
+
+
+def nwgrad_scores(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
+                  fill='interpair'):
+    """
+    Every pair's optimal score under nw_params, as a float64 array. Score-only:
+    no traceback and no alignment objects, which is several times faster than
+    nwgrad_alignments() when only the scores are needed.
+    """
+    batch = _gradient_free_batch(list(seqlistA), list(seqlistB), nw_params, gap_mode,
+                                 mode, num_threads, fill)
+    batch.score_and_grad()
+    return batch.scores()
+
+
 class NwgradEngine:
     """
     Same interface as the Biopython engine in discrimalign: set_params(),
@@ -63,16 +120,17 @@ class NwgradEngine:
     """
 
     def __init__(self, seqlistA, seqlistB, mode, gap_mode, substitution_mode,
-                 alphabet, num_threads, fill='striped'):
+                 alphabet, num_threads, fill='interpair'):
         self.seqlistA = list(seqlistA)
         self.seqlistB = list(seqlistB)
         self.mode = mode
         self.gap_mode = gap_mode
         self.substitution_mode = substitution_mode
         self.alphabet = alphabet
-        self.batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads),
-                                               traceback='pointers')
-        self.fill = fill
+        self.num_threads = int(num_threads)
+        self.batch = nwgrad.SeqPairBatchDouble(n_threads=self.num_threads,
+                                               traceback='pointers', gap_model=gap_mode,
+                                               mode=mode, grad_mode='hard')
         self.batch.fill = fill
         self._built = False
 
@@ -87,42 +145,22 @@ class NwgradEngine:
         if self._built:
             self.batch.set_params(nw_params)
         else:
-            self.batch.add_many(self.seqlistA, self.seqlistB, nw_params,
-                                gap_model=self.gap_mode, mode=self.mode,
-                                grad_mode='hard')
+            self.batch.add_many(self.seqlistA, self.seqlistB, nw_params)
             self._built = True
 
-    def alignments(self, chunk_size=100_000):
+    def alignments(self):
         """
-        Every pair's alignment at the parameters last set: a Bio.Align.Alignment
-        with .score, or EmptyLocalAlignment for a local pair with no
-        positive-scoring alignment. These are nwgrad's own paths, the ones the
-        scores and subgradients come from, so on ties they agree with them, which
-        a Biopython realignment need not. Recovering a path needs pair-owned DP
-        tables, so the pairs are aligned chunk_size at a time to bound memory.
+        Every pair's alignment at the parameters last set; see
+        _alignments_from_paths(). The engine's batch re-runs its DP keeping the
+        paths, so these are nwgrad's own paths, the ones the scores and
+        subgradients come from: on ties they agree with them, which a Biopython
+        realignment need not.
         """
-        from Bio.Align import Alignment
-        out = []
-        for start in range(0, len(self.seqlistA), chunk_size):
-            seqs_a = self.seqlistA[start:start + chunk_size]
-            seqs_b = self.seqlistB[start:start + chunk_size]
-            batch = nwgrad.SeqPairBatchDouble(n_threads=self.batch.n_threads,
-                                              traceback='pointers')
-            batch.fill = self.fill
-            batch.add_many(seqs_a, seqs_b, self._nw_params, gap_model=self.gap_mode,
-                           mode=self.mode, grad_mode='none')
-            batch.alloc_dp()
-            batch.align_full()
-            for i, (seq_a, seq_b) in enumerate(zip(seqs_a, seqs_b)):
-                pair = batch[i]
-                coordinates = pair.coordinates()
-                if (coordinates[:, 0] == coordinates[:, -1]).all():
-                    out.append(EmptyLocalAlignment())
-                    continue
-                alignment = Alignment([seq_a, seq_b], coordinates)
-                alignment.score = pair.score
-                out.append(alignment)
-        return out
+        self.batch.score_and_grad(keep_paths=True)
+        try:
+            return _alignments_from_paths(self.batch, self.seqlistA, self.seqlistB)
+        finally:
+            self.batch.drop_paths()
 
     def scores(self):
         self.batch.score_and_grad()
@@ -143,7 +181,7 @@ class NwgradEngine:
             return logistic_step(self, labels, alpha0, alpha_solver)
         self.batch.score_and_grad()
         step = nwgrad_logistic.step(self.batch, labels, alpha0)
-        loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels)
+        loglik = _logit_logL_unchecked(self.batch.scores(), alpha0, labels, self.num_threads)
         return loglik, step.alpha, grad_to_raw(step.grad)
 
     def raw_counts(self):

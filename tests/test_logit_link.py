@@ -82,9 +82,13 @@ def test_logL_is_exact_on_certain_wrong_predictions():
     assert logit_logL([-800.0, 800.0], 0.0, [1, 0]) == -1600.0
 
 
-def test_logL_keeps_precision_on_confident_right_predictions():
-    # log(1 - p) with p = expit(-40) would round to 0; the exact value is about -4e-18.
-    assert logit_logL([40.0], 0.0, [1]) == pytest.approx(-np.log1p(np.exp(-40.0)), rel=1e-14)
+@pytest.mark.parametrize("logit", [-50.0, -40.0, -30.0, -20.0, 20.0, 30.0, 40.0, 50.0])
+def test_logL_keeps_precision_on_confident_right_predictions(logit):
+    # At z=40, y=1, subtracting z + log1p(exp(-z)) from z rounds to zero.
+    # Disable the default absolute tolerance so it cannot hide the lost term.
+    expected = -np.log1p(np.exp(-abs(logit)))
+    assert logit_logL([logit], 0.0, [int(logit > 0)]) == pytest.approx(
+        expected, rel=1e-14, abs=0.0)
 
 
 @pytest.mark.parametrize("scores,alpha", [([0.0, np.nan], 0.0), ([0.0, np.inf], 0.0),
@@ -359,3 +363,21 @@ def test_subgradient_on_biopython_alignment():
     assert G.sum() - np.trace(G) == counts.mismatches
     assert sg["Gap opens"] == counts.open_gaps
     assert sg["Gap extends"] == counts.extend_gaps
+
+
+def test_logL_does_not_depend_on_thread_count():
+    rng = np.random.default_rng(5)
+    scores = rng.normal(scale=4, size=100_003)
+    labels = rng.integers(0, 2, scores.size)
+    values = {t: logit_logL(scores, -0.2, labels, num_threads=t) for t in (1, 2, 3, 8)}
+    assert len(set(values.values())) == 1
+
+
+def test_logL_restores_numexpr_thread_count():
+    import numexpr
+    previous = numexpr.set_num_threads(3)
+    try:
+        logit_logL([0.5, -1.0], 0.1, [1, 0], num_threads=2)
+        assert numexpr.set_num_threads(3) == 3
+    finally:
+        numexpr.set_num_threads(previous)
