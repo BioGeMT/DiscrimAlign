@@ -4,28 +4,55 @@ version = "0.1.0"
 description = "Discriminative alignment parameter learning from labelled biological sequence pairs"
 readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "biopython>=1.86",
-    "ipykernel>=6.29.0",
     "joblib>=1.4.2",
-    "jupyterlab>=4.2.0",
-    "matplotlib>=3.9.2",
-    "mirbench",
     "numexpr>=2.10",
-    "nwgrad>=0.6.0",
+    "nwgrad>=0.6.0,<0.7",
     "numpy>=1.26.4",
-    "pandas>=2.2.2",
     "scikit-learn>=1.4.2",
     "scipy>=1.12.0",
-    "threadpoolctl>=3.6.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/BioGeMT/DiscrimAlign"
+
+[project.scripts]
+discrimalign-infer = "discrimalign.infer:main"
+
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+# The code lives in src/ and is imported as `src` from the repository; the
+# wheel installs the same directory as the `discrimalign` package.
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.hatch.build.targets.wheel.sources]
+"src" = "discrimalign"
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/README.md", "/LICENSE", "/pyproject.toml"]
 
 [tool.uv]
 package = false
+default-groups = ["dev", "research"]
 
 [dependency-groups]
 dev = [
     "pytest>=8",
+]
+# Case study, notebooks and the miRBench tests; not needed by the library.
+research = [
+    "ipykernel>=6.29.0",
+    "jupyterlab>=4.2.0",
+    "matplotlib>=3.9.2",
+    "mirbench",
+    "pandas>=2.2.2",
+    "threadpoolctl>=3.6.0",
 ]
 
 [tool.pytest.ini_options]
