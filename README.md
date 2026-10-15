@@ -12,7 +12,8 @@ case_study_for_mirna/         Bundled miRNA trained models and evaluation workfl
 benchmarks/                   Backend benchmark script
 TODO-nwgrad.md                Follow-ups to the nwgrad backend
 Simulation experiments.ipynb  Simulation experiments for the manuscript
-pyproject.toml                Project environment managed by uv
+pyproject.toml                Package metadata and the uv project environment
+.github/workflows/            CI tests and the PyPI release
 ```
 
 ## Requirements
@@ -58,7 +59,17 @@ Create the project environment from the repository root:
 uv sync
 ```
 
-All project commands are run through this environment with `uv run`.
+All project commands are run through this environment with `uv run`. Besides the library's own dependencies it installs two dependency groups: `dev` (pytest) and `research` (JupyterLab, matplotlib, pandas and miRBench, for the notebooks and the case study). miRBench requires numpy < 2, so this environment needs Python 3.12 or older.
+
+## Installing the package
+
+The library alone, without the notebooks and the case study, is published on PyPI:
+
+```bash
+pip install discrimalign
+```
+
+It installs the code in `src/` as the `discrimalign` package (`from discrimalign import discrimalign, predict_csv`) and the `discrimalign-infer` command, the same as `python -m src.infer` in the repository. The model aliases `manakov` and `hejret` point into the repository, so from an installed package pass a model file path.
 
 ## miRNA Inference Quickstart
 
@@ -286,7 +297,13 @@ uv run pytest                  # full suite, about a minute
 uv run pytest -m "not slow"    # skip the end-to-end learning runs
 ```
 
+CI (`.github/workflows/tests.yml`) runs on every pull request and every push to `main`: the full suite in the project environment, and the built wheel on Linux and macOS with Python 3.10 to 3.14, installed with its own dependencies only (the miRBench tests are skipped there).
+
 Tests marked `xfail(strict=True)` document known, accepted differences or bugs; they start failing once the behavior changes, and the marker should then be removed.
+
+## Releasing
+
+Set `version` in `pyproject.toml`, merge, then push a tag `v<version>` (for example `v0.1.0`) on that commit. `.github/workflows/release.yml` runs the test workflow, checks that the tag matches the version, builds the sdist and wheel, and publishes them to PyPI only if all tests passed. Publishing uses PyPI trusted publishing: the PyPI project needs a trusted publisher for this repository, workflow `release.yml`, environment `pypi`.
 
 ## Benchmarks
 
