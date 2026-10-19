@@ -297,13 +297,13 @@ uv run pytest                  # full suite, about a minute
 uv run pytest -m "not slow"    # skip the end-to-end learning runs
 ```
 
-CI (`.github/workflows/tests.yml`) runs on every pull request and every push to `main`: the full suite in the project environment, and the built wheel on Linux and macOS with Python 3.10 to 3.14, installed with its own dependencies only (the miRBench tests are skipped there).
+CI (`.github/workflows/tests.yml`) runs on every pull request and every push to `main`: the full suite in the project environment, and the built wheel on Linux and macOS with Python 3.10 to 3.15, installed with its own dependencies only. The wheel jobs run the suite against the installed package: with `DISCRIMALIGN_TEST_INSTALLED=1`, `tests/conftest.py` maps every `src.<module>` to the installed `discrimalign.<module>` (the miRBench tests are skipped there).
 
 Tests marked `xfail(strict=True)` document known, accepted differences or bugs; they start failing once the behavior changes, and the marker should then be removed.
 
 ## Releasing
 
-Set `version` in `pyproject.toml`, merge, then push a tag `v<version>` (for example `v0.1.0`) on that commit. `.github/workflows/release.yml` runs the test workflow, checks that the tag matches the version, builds the sdist and wheel, and publishes them to PyPI only if all tests passed. Publishing uses PyPI trusted publishing: the PyPI project needs a trusted publisher for this repository, workflow `release.yml`, environment `pypi`.
+Set `version` in `pyproject.toml`, merge, then push a tag `v<version>` (for example `v0.1.0`) on that commit. `.github/workflows/release.yml` checks that the tag matches the version, builds the sdist and wheel once, runs the wheel tests on exactly those files, and publishes them to PyPI only if all tests passed. Running the workflow by hand (Actions → release → Run workflow) is a dry run: it builds and tests the release artifacts on the chosen branch, skips the tag check and publishes nothing. Publishing uses PyPI trusted publishing: the PyPI project needs a trusted publisher for this repository, workflow `release.yml`, environment `pypi`.
 
 ## Benchmarks
 
