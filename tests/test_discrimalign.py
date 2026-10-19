@@ -691,18 +691,19 @@ def test_nwgrad_logistic_step_matches_the_python_path(mode, gap_mode, substituti
                          rtol=1e-12, atol=1e-12)
 
 
-@pytest.mark.parametrize("fill", ["rowwise", "interpair"])
+@pytest.mark.parametrize("fill", ["striped", "rowwise", "interpair"])
 @pytest.mark.parametrize("mode, gap_mode, substitution_mode", ALL_MODES)
 def test_fill_gives_the_same_fit(mode, gap_mode, substitution_mode, fill):
-    """nwgrad_fill changes only the speed: the fit is bit-identical."""
+    """nwgrad_fill changes only the speed: the fit is bit-identical to the
+    default's (interpair)."""
     _, A, B, y = _data(25)
     kwargs = dict(max_iter=5, stepfunction=create_constant_step(0.01))
-    striped = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
+    default = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode, **kwargs)
     other = _run_on("nwgrad", A, B, y, mode, gap_mode, substitution_mode,
-                      nwgrad_fill=fill, **kwargs)
-    assert other["alpha"] == striped["alpha"]
-    assert other["loglik_trajectory"] == striped["loglik_trajectory"]
-    _assert_params_equal(other, striped, _param_keys(gap_mode, substitution_mode),
+                    nwgrad_fill=fill, **kwargs)
+    assert other["alpha"] == default["alpha"]
+    assert other["loglik_trajectory"] == default["loglik_trajectory"]
+    _assert_params_equal(other, default, _param_keys(gap_mode, substitution_mode),
                          rtol=0, atol=0)
 
 

@@ -171,7 +171,7 @@ def discrimalign(seqlistA, seqlistB,
                  verbose=False,
                  backend='nwgrad',
                  alpha_solver='safeguarded_newton',
-                 nwgrad_fill='striped'):
+                 nwgrad_fill=None):
     """
     backend selects where alignment scores and subgradients come from:
     'nwgrad' (the default) or 'biopython' (PairwiseAligner). With 'nwgrad', the initial
@@ -190,11 +190,11 @@ def discrimalign(seqlistA, seqlistB,
     which can stop far from the optimum when alpha moves a long way between
     iterations, e.g. with subgradient_scale=1 on large data.
 
-    nwgrad_fill selects nwgrad's vectorized DP fill: 'striped' (the default),
-    'rowwise' or 'interpair'. All three give the same scores, gradients and fit,
-    bit for bit. On short pairs such as miRNA-target sites, 'rowwise' is about 2x
-    faster than 'striped', and 'interpair' (several pairs per vector) faster
-    still.
+    nwgrad_fill selects nwgrad's vectorized DP fill: 'interpair' (nwgrad's
+    default; several pairs per vector, falling back to a per-pair fill for long
+    pairs), 'striped' or 'rowwise'. All three give the same scores, gradients
+    and fit, bit for bit; only the speed differs. Leave it unset unless
+    measuring.
     """
     # TODO: Implement tol and additional stepfunctions.
     assert backend in {'biopython', 'nwgrad'}
@@ -202,11 +202,13 @@ def discrimalign(seqlistA, seqlistB,
     assert aligner_mode in {'local', 'global'}
     assert gap_mode in {'affine', 'linear'}
     assert substitution_mode in {'general', 'symmetric', 'simple'}
-    if nwgrad_fill not in {'striped', 'rowwise', 'interpair'}:
-        raise ValueError("nwgrad_fill must be 'striped', 'rowwise' or 'interpair', "
+    if nwgrad_fill not in {None, 'interpair', 'striped', 'rowwise'}:
+        raise ValueError("nwgrad_fill must be 'interpair', 'striped' or 'rowwise', "
                          f"got {nwgrad_fill!r}")
-    if nwgrad_fill != 'striped' and backend != 'nwgrad':
+    if nwgrad_fill is not None and backend != 'nwgrad':
         raise ValueError("nwgrad_fill applies to the nwgrad backend only")
+    if nwgrad_fill is None:
+        nwgrad_fill = 'interpair'   # nwgrad's own default since 0.6
     if stepfunction is None:
         stepfunction = create_powerstep(1e-4)
     for seqlist, name in ((seqlistA, 'seqlistA'), (seqlistB, 'seqlistB')):
@@ -417,7 +419,7 @@ def discrimalign(seqlistA, seqlistB,
     logit_scores = logit_partial_scores(alignment_scores,
                                         updated_parameters['alpha'])
     new_logL = _logit_logL_unchecked(np.asarray(alignment_scores, dtype=float),
-                                     updated_parameters['alpha'], labels_float)
+                                     updated_parameters['alpha'], labels_float, num_threads)
 ##    EL = 0
 ##    VL = 0
 ##    for ls in logit_scores:

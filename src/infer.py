@@ -37,6 +37,18 @@ def main(argv=None):
         action="store_true",
         help="Reverse-complement the second sequence column before scoring.",
     )
+    parser.add_argument(
+        "--backend",
+        default="nwgrad",
+        choices=["nwgrad", "biopython"],
+        help="Alignment engine (default: nwgrad).",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="Threads for the nwgrad engine (default: all logical cores).",
+    )
     args = parser.parse_args(argv)
 
     model_path = _resolve_model_path(args.model)
@@ -49,6 +61,8 @@ def main(argv=None):
         sequence_b_column=args.seq_b_column,
         normalize=args.normalize,
         reverse_complement_b=args.reverse_complement_b,
+        backend=args.backend,
+        num_threads=args.threads,
     )
     print(f"Loaded model from {model_path}")
     print(f"Wrote {len(rows)} prediction rows to {args.output}")
