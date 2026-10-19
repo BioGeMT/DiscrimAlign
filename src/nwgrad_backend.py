@@ -76,10 +76,10 @@ def _alignments_from_paths(batch, seqlistA, seqlistB):
 def _gradient_free_batch(seqlistA, seqlistB, nw_params, gap_mode, mode, num_threads,
                          fill='interpair'):
     """One nwgrad batch of the pairs under nw_params, without gradients."""
-    batch = nwgrad.SeqPairBatchDouble(n_threads=int(num_threads), traceback='pointers',
+    batch = nwgrad.SeqPairBatchDouble(seqlistA, seqlistB, nw_params,
+                                      n_threads=int(num_threads), traceback='pointers',
                                       gap_model=gap_mode, mode=mode, grad_mode='none')
     batch.fill = fill
-    batch.add_many(seqlistA, seqlistB, nw_params)
     return batch
 
 
@@ -128,11 +128,10 @@ class NwgradEngine:
         self.substitution_mode = substitution_mode
         self.alphabet = alphabet
         self.num_threads = int(num_threads)
-        self.batch = nwgrad.SeqPairBatchDouble(n_threads=self.num_threads,
-                                               traceback='pointers', gap_model=gap_mode,
-                                               mode=mode, grad_mode='hard')
-        self.batch.fill = fill
-        self._built = False
+        self.fill = fill
+        # Built at the first set_params(): nwgrad takes the pairs and the
+        # parameters together, in the batch constructor.
+        self.batch = None
 
     def set_params(self, params, substitution_mode=None):
         """
@@ -142,11 +141,15 @@ class NwgradEngine:
         nw_params = to_nwgrad(params, self.gap_mode,
                               substitution_mode or self.substitution_mode, self.alphabet)
         self._nw_params = nw_params
-        if self._built:
+        if self.batch is not None:
             self.batch.set_params(nw_params)
         else:
-            self.batch.add_many(self.seqlistA, self.seqlistB, nw_params)
-            self._built = True
+            self.batch = nwgrad.SeqPairBatchDouble(self.seqlistA, self.seqlistB, nw_params,
+                                                   n_threads=self.num_threads,
+                                                   traceback='pointers',
+                                                   gap_model=self.gap_mode,
+                                                   mode=self.mode, grad_mode='hard')
+            self.batch.fill = self.fill
 
     def alignments(self):
         """
