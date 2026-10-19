@@ -6,6 +6,11 @@ on:
   pull_request:
   workflow_dispatch:
   workflow_call:
+    inputs:
+      dist:
+        description: Name of an artifact holding the built dist/ to test instead of building one; skips the checkout test
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -19,6 +24,7 @@ jobs:
   # miRBench pins numpy<2, which has no wheels past Python 3.12.
   project-env:
     name: pytest (uv environment, Python 3.12)
+    if: inputs.dist == ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -29,7 +35,8 @@ jobs:
       - run: uv pip show nwgrad
       - run: uv run pytest
 
-  # The built wheel with only its own dependencies, as a pip user gets it.
+  # The built wheel with only its own dependencies, as a pip user gets it. The
+  # test suite comes from the checkout, but tests the installed package.
   package:
     name: pytest (wheel, ${{ matrix.os }}, Python ${{ matrix.python }})
     runs-on: ${{ matrix.os }}
@@ -41,7 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v10.2.0
-      - run: uv build
+      - if: inputs.dist == ''
+        run: uv build
+      - if: inputs.dist != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.dist }}
+          path: dist/
       - name: Install the wheel
         run: |
           uv venv --python ${{ matrix.python }} "$RUNNER_TEMP/venv"
@@ -53,5 +66,7 @@ jobs:
           venv/bin/python -I -c "import discrimalign; from discrimalign import discrimalign, load_model, predict_csv; print(discrimalign.__module__)"
           venv/bin/discrimalign-infer --help
       - name: Test suite (miRBench tests need the project environment)
+        env:
+          DISCRIMALIGN_TEST_INSTALLED: "1"
         run: |
           "$RUNNER_TEMP/venv/bin/python" -m pytest --ignore=tests/test_mirbench.py
