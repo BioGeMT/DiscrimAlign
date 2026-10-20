@@ -10,7 +10,7 @@ dependencies = [
     "biopython>=1.86",
     "joblib>=1.4.2",
     "numexpr>=2.10",
-    "nwgrad>=0.6.0",
+    "nwgrad>=0.7.0",
     "numpy>=1.26.4",
     "scikit-learn>=1.4.2",
     "scipy>=1.12.0",
@@ -58,6 +58,8 @@ research = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# nwgrad API deprecated now is removed in its next minor release.
+filterwarnings = ["error:.*is deprecated in nwgrad:DeprecationWarning"]
 markers = [
     "slow: end-to-end runs on larger data (deselect with -m 'not slow'); the miRBench runs also need DISCRIMALIGN_RUN_MIRBENCH=1",
 ]
