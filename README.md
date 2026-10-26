@@ -303,7 +303,7 @@ Tests marked `xfail(strict=True)` document known, accepted differences or bugs; 
 
 ## Releasing
 
-Set `version` in `pyproject.toml`, merge, then push a tag `v<version>` (for example `v1.0.0`) on that commit. `.github/workflows/release.yml` checks that the tag matches the version, builds the sdist and wheel once, runs the wheel tests on exactly those files, and publishes them to PyPI only if all tests passed. Running the workflow by hand (Actions → release → Run workflow) is a dry run: it builds and tests the release artifacts on the chosen branch, skips the tag check and publishes nothing. Publishing uses PyPI trusted publishing: the PyPI project needs a trusted publisher for this repository, workflow `release.yml`, environment `pypi`.
+Set `version` in `pyproject.toml`, merge, then push a tag `v<version>` (for example `v1.0.0`) on that commit. `.github/workflows/release.yml` checks that the tag matches the version, builds the sdist and wheel once, runs the wheel tests on exactly those files, and, only if all tests passed, creates the GitHub release for the tag (generated release notes, sdist and wheel attached; an existing release for the tag gets the files added) and then publishes the files to PyPI. If the GitHub release fails, nothing is uploaded to PyPI. Running the workflow by hand (Actions → release → Run workflow) is a dry run: it builds and tests the release artifacts on the chosen branch, skips the tag check and publishes nothing. Publishing uses PyPI trusted publishing: the PyPI project needs a trusted publisher for this repository, workflow `release.yml`, environment `pypi`.
 
 ## Benchmarks
 
