@@ -1,6 +1,6 @@
 [project]
 name = "discrimalign"
-version = "0.1.0"
+version = "1.0.0"
 description = "Discriminative alignment parameter learning from labelled biological sequence pairs"
 readme = "README.md"
 requires-python = ">=3.10"
