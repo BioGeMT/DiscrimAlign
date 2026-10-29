@@ -2,7 +2,7 @@
 
 **Learn substitution matrices and gap penalties from labeled pairs of biological sequences.**
 
-DiscrimAlign learns pairwise alignment parameters for binary classification tasks, such as predicting sequence interactions or distinguishing related from unrelated sequences. Training requires positive and negative pairs of unaligned DNA, RNA, or protein sequences. It jointly learns substitution weights, gap penalties, and a logistic intercept; reference alignments are not required.
+DiscrimAlign learns pairwise alignment parameters for binary classification tasks, such as predicting sequence interactions or distinguishing related from unrelated sequences. Training requires positive and negative pairs of unaligned DNA, RNA, or protein sequences. It jointly learns substitution weights, gap penalties, and a logistic intercept; *reference alignments are not required*, the training is accomplished purely by specifying which pairs should align well (e.g. homologous or interacting) and which should align poorly (e.g. random pairs).
 
 The repository provides a Python training and prediction API, simulation experiments, and case studies on miRNA–target interactions and protein sequence blocks. It accompanies the article *Discriminative Learning of Substitution Matrices and Gap Penalties for Pairwise Alignment of Biological Sequences*.
 
@@ -68,22 +68,30 @@ Run the repository examples below from the repository root with `uv run`. The ch
 
 ### Learning substitution matrices and gap parameters
 
-Prepare a CSV named `training_pairs.csv` with columns `sequence_a`, `sequence_b`, and `label`. Each row represents a sequence pair; labels must be `0` or `1`, with both classes represented. Sequences must be nonempty and use a common alphabet. Supply sequences in the orientation you want aligned; the training API does not reverse-complement them automatically.
+Suppose you have a CSV named `training_pairs.csv` with columns `sequence_a`, `sequence_b`, and `label`. Each row represents a sequence pair; labels must be `0` or `1`, with both classes represented. Sequences must be nonempty and use a common alphabet. DNA and RNA sequences need to be supplied in the orientation you want them aligned; the training API does not reverse-complement them automatically. Load the data: 
 
 
 ```python
 import csv
 
-from discrimalign import discrimalign, predict_pairs, save_model
-from discrimalign.optimization import create_constant_step
-
 with open("training_pairs.csv", newline="") as handle:
     pairs = list(csv.DictReader(handle))
 
+seqlistA = [row["sequence_a"] for row in pairs]
+seqlistB = [row["sequence_b"] for row in pairs]
+labels = [int(row["label"]) for row in pairs]
+``` 
+
+Use DiscrimAlign to estimate substitution matrices using the loaded data:
+
+```
+from discrimalign import discrimalign
+from discrimalign.optimization import create_constant_step
+
 model = discrimalign(
-    seqlistA=[row["sequence_a"] for row in pairs],
-    seqlistB=[row["sequence_b"] for row in pairs],
-    labels=[int(row["label"]) for row in pairs],
+    seqlistA=seqlistA,
+    seqlistB=seqlistB,
+    labels=labels,
     aligner_mode="local",           # "local" or "global"
     substitution_mode="symmetric",  # "simple", "symmetric" or "general"
     gap_mode="affine",              # "affine" or "linear"
@@ -95,9 +103,15 @@ model = discrimalign(
 print(model["substitution_matrix"])
 print(model["open_gap_score"], model["extend_gap_score"])
 print(model["alpha"], model["final_loglik"])
-save_model(model, "model.pkl")
+```
 
-predictions = predict_pairs(["ACGTAC"], ["ACCTAC"], model=model)
+Save the fitted model and use it for binary classification:
+
+```
+from discrimalign import predict_pairs, save_model
+save_model(model, "model.pkl")  # Alternatively use pickle.dump()
+
+predictions = predict_pairs(test_seqlistA, test_seqlistB, model=model)
 print(predictions[0]["probability"])
 ```
 
@@ -109,24 +123,6 @@ The step size and iteration count above are starting values, not tuned defaults 
 
 The default alignment backend is **nwgrad**, which computes scores and alignment feature counts in parallel. Use `num_threads` to control its thread count, or `backend="biopython"` to use Biopython. Equally scoring alignments can be resolved differently by the two backends, affecting subsequent training updates. The current implementation constrains gap scores to be at most `-1e-4`.
 
-### Predict with a saved model
-
-Use a CSV with columns `sequence_a` and `sequence_b`; additional columns, such as an identifier, are preserved. A small input example is provided in [examples/mirna_pairs.csv](examples/mirna_pairs.csv).
-
-```bash
-uv run python -m src.infer \
-  --model model.pkl \
-  --input examples/mirna_pairs.csv \
-  --output predictions.csv
-```
-
-Use a model trained for the input alphabet and task. To try a bundled miRNA model without training, replace `--model model.pkl` with `--model manakov` or `--model hejret`.
-
-The output adds the positive-class probability, alignment score, normalized sequences, and a readable alignment with match, mismatch, and gap annotations. By default, `U`/`T` is normalized to match the model alphabet. Run `uv run python -m src.infer --help` for column-name, preprocessing, backend, and thread options.
-
-For targets supplied in their original biological orientation, use `--reverse-complement-b` to match the miRNA case-study preprocessing. The bundled example is a small inference demonstration, not a biological benchmark.
-
-With the installed package, the equivalent command is `discrimalign-infer --model path/to/model.pkl --input pairs.csv --output predictions.csv`. The `manakov` and `hejret` aliases resolve to files relative to the repository root; outside the checkout, pass the model file path explicitly.
 
 ## Advanced use
 
@@ -156,6 +152,13 @@ On the x86-64 machines tested, one fitting iteration on 10,000 miRNA-sized pairs
 
 `nwgrad_fill` selects nwgrad's vectorized DP fill: `"interpair"` (default, nwgrad's own default), `"striped"` or `"rowwise"`. All three give the same scores, gradients and fit, bit for bit; only the speed differs. `"interpair"` aligns several short pairs at once, one per vector lane, and sends pairs too long for that to a per-pair fill. On all 2.5 million Manakov training pairs (local/affine/general, 300 iterations, 12 threads on an i5-12500, nwgrad 0.5.2), the fit took 1072 s with `"striped"`, 469 s with `"rowwise"` and 291 s with `"interpair"`. Leave it at the default unless measuring.
 
+### Step size functions and learning rate schedules 
+
+The `stepfunction` argument controls the learning rate at each iteration. The package provides `create_constant_step(scale)`, which keeps the learning rate fixed, and `create_powerstep(scale, power=0.5, burnin=0)`, which decreases it as `scale / (k + 1)**power`, where `k` counts iterations after the optional burn-in period. During burn-in, the learning rate remains equal to `scale`. The `scale` parameter is the learning rate in the (sub)gradient ascent. Since the norm of the gradient increases roughly linearly with the size of the dataset, large datasets require lower learning rates. 
+
+If `stepfunction` is omitted, training uses `create_powerstep(1e-4)`. Import these helpers from `discrimalign.optimization` (or `src.optimization` when working from the repository checkout). 
+
+The constant step size converges faster, but only to a neighborhood of the optimum. The power step function converges to the optimum, but slowly. It's recommended to use the constant step for initial iterations, followed by a refinement with the power step; Experiments show that using the constant step in 50%-90% of iterations provide good results (e.g. 800 iterations with a constant step followed by 200 iterations with the power step). 
 
 ## Experimental miRNA binding site prediction interface
 
@@ -244,6 +247,25 @@ uv run python -m src.infer \
   --seq-a-column mirna \
   --seq-b-column target
 ```
+
+### Predict with a saved model
+
+Use a CSV with columns `sequence_a` and `sequence_b`; additional columns, such as an identifier, are preserved. A small input example is provided in [examples/mirna_pairs.csv](examples/mirna_pairs.csv).
+
+```bash
+uv run python -m src.infer \
+  --model model.pkl \
+  --input examples/mirna_pairs.csv \
+  --output predictions.csv
+```
+
+Use a model trained for the input alphabet and task. To try a bundled miRNA model without training, replace `--model model.pkl` with `--model manakov` or `--model hejret`.
+
+The output adds the positive-class probability, alignment score, normalized sequences, and a readable alignment with match, mismatch, and gap annotations. By default, `U`/`T` is normalized to match the model alphabet. Run `uv run python -m src.infer --help` for column-name, preprocessing, backend, and thread options.
+
+For targets supplied in their original biological orientation, use `--reverse-complement-b` to match the miRNA case-study preprocessing. The bundled example is a small inference demonstration, not a biological benchmark.
+
+With the installed package, the equivalent command is `discrimalign-infer --model path/to/model.pkl --input pairs.csv --output predictions.csv`. The `manakov` and `hejret` aliases resolve to files relative to the repository root; outside the checkout, pass the model file path explicitly.
 
 
 
